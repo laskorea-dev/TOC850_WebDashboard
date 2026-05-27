@@ -107,6 +107,15 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
 
+  // 날짜 점프 상태
+  const [jumpDate, setJumpDate] = useState('');
+
+  // CSV 다운로드 모달 상태
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [csvRangeType, setCsvRangeType] = useState('24h');
+  const [csvCustomStart, setCsvCustomStart] = useState('');
+  const [csvCustomEnd, setCsvCustomEnd] = useState('');
+
   // =========================================================================
   // Supabase 페이지네이션 Fetch — 전체 레코드 가져오기
   // =========================================================================
@@ -392,26 +401,80 @@ function App() {
     });
   }, [data, tableChannelFilter, tableTocMin, tableTocMax, searchQuery]);
 
-  // CSV 다운로드
-  const downloadCSV = useCallback(() => {
-    if (tableFilteredData.length === 0) return;
+  // 날짜로 점프 기능
+  const handleJumpToDate = useCallback(() => {
+    if (!jumpDate) return;
+    
+    // YYYY-MM-DD 포맷 등 입력된 날짜 문자열로 tableFilteredData(정렬된 상태) 탐색
+    // 최근 데이터 먼저 정렬되어 있으므로, Date_Time이 jumpDate로 시작하는 첫 매칭 행 검색
+    const targetIndex = tableFilteredData.findIndex(item => 
+      item.Date_Time && item.Date_Time.startsWith(jumpDate)
+    );
+
+    if (targetIndex !== -1) {
+      const targetPage = Math.floor(targetIndex / itemsPerPage) + 1;
+      setCurrentPage(targetPage);
+      alert(`${jumpDate} 데이터가 발견되어 ${targetPage}페이지로 이동합니다. (해당 페이지 ${targetIndex % itemsPerPage + 1}번째 행)`);
+    } else {
+      alert(`입력하신 날짜(${jumpDate})에 해당하는 데이터를 찾을 수 없습니다. (필터 상태 및 YYYY-MM-DD 형식을 확인해주세요)`);
+    }
+  }, [jumpDate, tableFilteredData, itemsPerPage]);
+
+  // CSV 다운로드 전용 필터링 및 다운로드 구현
+  const handleCSVDownload = useCallback(() => {
+    if (data.length === 0) return;
+
+    let targetData = [...data]; // 정렬 순서는 원본 순서(시간 오름차순 또는 내림차순) 상관없이 필터링 진행
+
+    // CSV 기간별 필터링 진행
+    if (csvRangeType !== 'all') {
+      const lastDate = parseDate(data[data.length - 1].Date_Time);
+
+      targetData = targetData.filter(item => {
+        const itemDate = parseDate(item.Date_Time);
+
+        if (csvRangeType === '24h') {
+          return (lastDate - itemDate) <= 24 * 60 * 60 * 1000;
+        } else if (csvRangeType === '7d') {
+          return (lastDate - itemDate) <= 7 * 24 * 60 * 60 * 1000;
+        } else if (csvRangeType === '30d') {
+          return (lastDate - itemDate) <= 30 * 24 * 60 * 60 * 1000;
+        } else if (csvRangeType === 'custom') {
+          const start = csvCustomStart ? new Date(csvCustomStart) : new Date(0);
+          const end = csvCustomEnd ? new Date(csvCustomEnd) : new Date();
+          return itemDate >= start && itemDate <= end;
+        }
+        return true;
+      });
+    }
+
+    // 최신 데이터를 먼저 보기 위해 내림차순 정렬 후 CSV 내보내기
+    targetData.sort((a, b) => parseDate(b.Date_Time) - parseDate(a.Date_Time));
+
+    if (targetData.length === 0) {
+      alert('선택하신 기간 내에 다운로드할 데이터가 존재하지 않습니다.');
+      return;
+    }
+
     const headers = ['Date_Time','Device_ID','Channel','Channel_Name','TOC_Conc','DilutionFactor','MSIG','SLOP','ICPT','FACT','OFST','Add_note'];
     const rows = [headers.join(',')];
-    tableFilteredData.forEach(r => {
+    targetData.forEach(r => {
       rows.push([
         r.Date_Time, r.Device_ID, r.Channel, `"${r.Channel_Name}"`,
         r.TOC_Conc, r.DilutionFactor, r.MSIG, r.SLOP, r.ICPT, r.FACT, r.OFST,
         `"${(r.Add_note || '').replace(/"/g, '""')}"`
       ].join(','));
     });
+
     const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `TOC_Data_${new Date().toISOString().slice(0,10)}.csv`;
+    a.download = `TOC_Data_${csvRangeType}_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [tableFilteredData]);
+    setIsCsvModalOpen(false); // 모달 닫기
+  }, [data, csvRangeType, csvCustomStart, csvCustomEnd]);
 
   // 테이블 페이징
   const totalPages = Math.ceil(tableFilteredData.length / itemsPerPage);
@@ -705,7 +768,7 @@ function App() {
                   총 {data.length.toLocaleString()}건 중 {tableFilteredData.length.toLocaleString()}건 조회
                 </p>
               </div>
-              <button className="filter-btn active" onClick={downloadCSV} disabled={tableFilteredData.length === 0}>
+              <button className="filter-btn active" onClick={() => setIsCsvModalOpen(true)} disabled={data.length === 0}>
                 CSV 다운로드 📥
               </button>
             </div>
@@ -818,43 +881,180 @@ function App() {
               </table>
             </div>
 
-            {/* 페이징 */}
-            {totalPages > 1 && (
-              <div className="table-pagination">
-                <button
-                  className="filter-btn"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(1)}
-                >
-                  ◀◀
-                </button>
-                <button
-                  className="filter-btn"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                >
-                  ◀ 이전
-                </button>
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                  <strong>{currentPage}</strong> / {totalPages} 페이지
-                </span>
-                <button
-                  className="filter-btn"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                >
-                  다음 ▶
-                </button>
-                <button
-                  className="filter-btn"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage(totalPages)}
-                >
-                  ▶▶
+            {/* 페이징 및 날짜 이동 바 */}
+            <div className="table-pagination-container">
+              {totalPages > 1 && (
+                <div className="table-pagination">
+                  <button
+                    className="filter-btn"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(1)}
+                  >
+                    ◀◀
+                  </button>
+                  <button
+                    className="filter-btn"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  >
+                    ◀ 이전
+                  </button>
+                  <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 600 }}>
+                    {currentPage} / {totalPages} 페이지
+                  </span>
+                  <button
+                    className="filter-btn"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  >
+                    다음 ▶
+                  </button>
+                  <button
+                    className="filter-btn"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(totalPages)}
+                  >
+                    ▶▶
+                  </button>
+                </div>
+              )}
+
+              {/* 날짜 점프 UI */}
+              <div className="date-jump-section">
+                <input
+                  type="date"
+                  className="custom-select date-jump-input"
+                  value={jumpDate}
+                  onChange={(e) => setJumpDate(e.target.value)}
+                />
+                <button className="sim-btn jump-btn" onClick={handleJumpToDate}>
+                  날짜 이동 🚀
                 </button>
               </div>
-            )}
+            </div>
           </section>
+
+          {/* ============================================ */}
+          {/* CSV 다운로드 기간 선택 모달                    */}
+          {/* ============================================ */}
+          {isCsvModalOpen && (
+            <div className="modal-overlay" onClick={() => setIsCsvModalOpen(false)}>
+              <div className="glass-card modal-content" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3>CSV 다운로드 기간 선택</h3>
+                  <button className="modal-close-btn" onClick={() => setIsCsvModalOpen(false)}>✕</button>
+                </div>
+                
+                <div className="modal-body">
+                  <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                    원하시는 다운로드 범위를 지정해 주세요. 최신 데이터가 상단에 배치된 CSV 파일이 다운로드됩니다.
+                  </p>
+
+                  <div className="csv-options-grid">
+                    <label className={`csv-option-card ${csvRangeType === '24h' ? 'active' : ''}`}>
+                      <input
+                        type="radio"
+                        name="csvRange"
+                        value="24h"
+                        checked={csvRangeType === '24h'}
+                        onChange={(e) => setCsvRangeType(e.target.value)}
+                      />
+                      <div className="option-info">
+                        <span className="option-title">최근 24시간</span>
+                        <span className="option-desc">가장 최신 하루치 측정 데이터를 추출합니다.</span>
+                      </div>
+                    </label>
+
+                    <label className={`csv-option-card ${csvRangeType === '7d' ? 'active' : ''}`}>
+                      <input
+                        type="radio"
+                        name="csvRange"
+                        value="7d"
+                        checked={csvRangeType === '7d'}
+                        onChange={(e) => setCsvRangeType(e.target.value)}
+                      />
+                      <div className="option-info">
+                        <span className="option-title">최근 7일</span>
+                        <span className="option-desc">최근 일주일 동안의 통계 분석에 적합합니다.</span>
+                      </div>
+                    </label>
+
+                    <label className={`csv-option-card ${csvRangeType === '30d' ? 'active' : ''}`}>
+                      <input
+                        type="radio"
+                        name="csvRange"
+                        value="30d"
+                        checked={csvRangeType === '30d'}
+                        onChange={(e) => setCsvRangeType(e.target.value)}
+                      />
+                      <div className="option-info">
+                        <span className="option-title">최근 30일</span>
+                        <span className="option-desc">최근 30일간 장기 추세를 분석할 때 사용합니다.</span>
+                      </div>
+                    </label>
+
+                    <label className={`csv-option-card ${csvRangeType === 'custom' ? 'active' : ''}`}>
+                      <input
+                        type="radio"
+                        name="csvRange"
+                        value="custom"
+                        checked={csvRangeType === 'custom'}
+                        onChange={(e) => setCsvRangeType(e.target.value)}
+                      />
+                      <div className="option-info">
+                        <span className="option-title">기간 지정</span>
+                        <span className="option-desc">시작 일시와 종료 일시를 수동 설정합니다.</span>
+                      </div>
+                    </label>
+
+                    <label className={`csv-option-card ${csvRangeType === 'all' ? 'active' : ''}`}>
+                      <input
+                        type="radio"
+                        name="csvRange"
+                        value="all"
+                        checked={csvRangeType === 'all'}
+                        onChange={(e) => setCsvRangeType(e.target.value)}
+                      />
+                      <div className="option-info">
+                        <span className="option-title">전체 데이터</span>
+                        <span className="option-desc">클라우드에 누적된 전체 ({data.length.toLocaleString()}건) 데이터를 다운로드합니다.</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* 커스텀 날짜 선택기 */}
+                  {csvRangeType === 'custom' && (
+                    <div className="custom-time-range csv-custom-time" style={{ marginTop: '16px' }}>
+                      <label>
+                        <span>시작 일시</span>
+                        <input
+                          type="datetime-local"
+                          className="custom-select datetime-input"
+                          value={csvCustomStart}
+                          onChange={(e) => setCsvCustomStart(e.target.value)}
+                        />
+                      </label>
+                      <span className="time-range-separator">~</span>
+                      <label>
+                        <span>종료 일시</span>
+                        <input
+                          type="datetime-local"
+                          className="custom-select datetime-input"
+                          value={csvCustomEnd}
+                          onChange={(e) => setCsvCustomEnd(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                  <button className="filter-btn" onClick={() => setIsCsvModalOpen(false)}>취소</button>
+                  <button className="sim-btn" onClick={handleCSVDownload}>내보내기 실행 📥</button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
