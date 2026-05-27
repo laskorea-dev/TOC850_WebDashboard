@@ -1,37 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
   Legend,
-  Cell,
   LineChart,
   Line
 } from 'recharts';
 
 // =========================================================================
-// [실제 Supabase 무료 클라우드 B2B 연동 가이드]
-// Supabase 프로젝트 Settings -> API 탭에서 복사한 주소와 키를 대입하세요.
-// 변수가 비어있을 때는 로컬 시뮬레이션 CSV 모드로 안전하게 작동합니다.
+// Supabase 연결 설정
 // =========================================================================
-// B2B 멀티테넌시 지원: Vercel 환경 변수(Environment Variables)에서 우선 조회하며, 없을 경우 현재 기본값으로 자동 폴백합니다.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://abfjmqnurtjfbflquqsp.supabase.co/rest/v1/";
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiZmptcW51cnRqZmJmbHF1cXNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTg3MjM4OCwiZXhwIjoyMDk1NDQ4Mzg4fQ.ejErBBFUNYlzBBCM0rLi_1mx49tuXQY_XArRuQ5dG0c";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
-
-// 채널명 깨짐 보정 및 한글 맵핑 테이블
-const CHANNEL_NAME_MAP = {
-  1: '방류수 (Effluent)',
-  2: '유입수 (Influent)',
-  3: '1차처리 (Primary)',
-  4: '냉각수 (Cooling Water)'
-};
+const PAGE_SIZE = 1000; // Supabase 기본 limit
 
 // 차트 선 색상 매핑
 const LINE_COLORS = {
@@ -45,18 +30,18 @@ const LINE_COLORS = {
   '기타 채널': '#a0a5b5'
 };
 
-// 데이터 표준화 및 한글 매핑 헬퍼 함수
+// 데이터 표준화 헬퍼
 const normalizeData = (items) => {
   if (!Array.isArray(items)) return [];
   return items.map(item => {
     const tocVal = parseFloat(item.TOC_Conc);
     const channelNum = parseInt(item.Channel);
 
-    // 디비에서 가져온 채널 이름이 깨끗한 경우(방류수, 유입수, 고농도 등) 우선 사용하여 범례 이름을 완벽 동기화하고,
-    // 비어있거나 특수 문자 깨짐(Լ)이 포함된 경우에만 CHANNEL_NAME_MAP으로 자동 폴백 처리합니다.
+    // DB Channel_Name 우선 사용, 깨진 문자(Լ 등)일 때만 폴백
     let resolvedChannelName = item.Channel_Name;
     if (!resolvedChannelName || resolvedChannelName === '' || resolvedChannelName.includes('Լ')) {
-      resolvedChannelName = CHANNEL_NAME_MAP[channelNum] || `채널 ${channelNum}`;
+      const fallbackMap = { 1: '방류수', 2: '유입수', 3: '고농도', 4: '냉각수' };
+      resolvedChannelName = fallbackMap[channelNum] || `채널 ${channelNum}`;
     }
 
     return {
@@ -77,293 +62,290 @@ const normalizeData = (items) => {
   });
 };
 
+// 날짜 파싱 유틸 (YYYY-MM-DD HH:MM:SS → Date)
+const parseDate = (dateStr) => {
+  if (!dateStr) return new Date(0);
+  return new Date(dateStr.replace(/-/g, '/'));
+};
+
+// ISO datetime-local 포맷 (input용)
+const toDatetimeLocal = (date) => {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 function App() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState('');
   const [error, setError] = useState(null);
-  
-  // 보안 접속 패스코드 상태 (눈가리기 식 로그인)
+
+  // 보안 접속
   const [passcode, setPasscode] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [loginError, setLoginError] = useState(false);
 
-  // UI 필터 및 검색 상태
-  const [selectedDevice, setSelectedDevice] = useState('All');
-  const [selectedAttr, setSelectedAttr] = useState('TOC_Conc'); // TOC_Conc or MSIG (꺾은선 물리속성 토글)
-  const [searchQuery, setSearchQuery] = useState('');
-  const [timeRange, setTimeRange] = useState('All'); // 24h, 3d, 7d, All (기본값 All로 설정하여 데이터 풍부하게 표출)
-  const [sortOrder, setSortOrder] = useState('desc'); // desc, asc
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  // 트렌드 차트 필터
+  const [selectedAttr, setSelectedAttr] = useState('TOC_Conc');
+  const [timeRange, setTimeRange] = useState('7d');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
-  // 데이터 로드 함수
-  const loadData = async () => {
+  // 테이블 필터
+  const [tableChannelFilter, setTableChannelFilter] = useState('All');
+  const [tableTocMin, setTableTocMin] = useState('');
+  const [tableTocMax, setTableTocMax] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+
+  // =========================================================================
+  // Supabase 페이지네이션 Fetch — 전체 레코드 가져오기
+  // =========================================================================
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLoadProgress('연결 중...');
     try {
-      let fetchedData = [];
-
-      // Supabase 연결 설정이 되어 있는 경우, 클라우드 DB에서 실시간 직접 fetch!
-      if (SUPABASE_URL && SUPABASE_KEY) {
-        const base_url = SUPABASE_URL.replace(/\/$/, "");
-        const fetchUrl = base_url.includes("/rest/v1")
-          ? `${base_url}/${SUPABASE_TABLE}?select=*&order=Date_Time.asc`
-          : `${base_url}/rest/v1/${SUPABASE_TABLE}?select=*&order=Date_Time.asc`;
-
-        const response = await fetch(fetchUrl, {
-          headers: {
-            "apikey": SUPABASE_KEY,
-            "Authorization": `Bearer ${SUPABASE_KEY}`
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Supabase fetch failed: ${response.status} ${response.statusText}`);
-        }
-
-        const rawJson = await response.json();
-        fetchedData = normalizeData(rawJson);
-      } else {
-        // 설정이 없을 시 로컬 퍼블릭 CSV 폴더에서 모의 동기화 데이터 fetch
-        const response = await fetch('/mock_google_sheet.csv');
-        if (!response.ok) {
-          throw new Error(`Failed to load local mock data: ${response.status}`);
-        }
-        const csvText = await response.text();
-        fetchedData = parseCSV(csvText);
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
 
-      setData(fetchedData);
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const endpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/${SUPABASE_TABLE}`
+        : `${baseUrl}/rest/v1/${SUPABASE_TABLE}`;
+
+      let allData = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const to = from + PAGE_SIZE - 1;
+        setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
+
+        const response = await fetch(
+          `${endpoint}?select=*&order=Date_Time.asc`,
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Range': `${from}-${to}`,
+              'Prefer': 'count=exact'
+            }
+          }
+        );
+
+        // 206 Partial Content 또는 200 OK 둘 다 처리
+        if (!response.ok && response.status !== 206) {
+          throw new Error(`Supabase fetch 실패: ${response.status} ${response.statusText}`);
+        }
+
+        const chunk = await response.json();
+
+        if (!Array.isArray(chunk) || chunk.length === 0) {
+          hasMore = false;
+        } else {
+          allData = allData.concat(chunk);
+          from += PAGE_SIZE;
+
+          // 반환된 건수가 PAGE_SIZE보다 적으면 마지막 페이지
+          if (chunk.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        }
+      }
+
+      setLoadProgress(`총 ${allData.length.toLocaleString()}건 로드 완료`);
+      const normalized = normalizeData(allData);
+      setData(normalized);
+
+      // 데이터 로드 후 커스텀 시간 범위 기본값 설정
+      if (normalized.length > 0 && !customStart) {
+        const first = parseDate(normalized[0].Date_Time);
+        const last = parseDate(normalized[normalized.length - 1].Date_Time);
+        setCustomStart(toDatetimeLocal(first));
+        setCustomEnd(toDatetimeLocal(last));
+      }
     } catch (err) {
       console.error(err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [customStart]);
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5 * 60 * 1000); // 5분마다 자동 새로고침
+    const interval = setInterval(loadData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // CSV 파서
-  const parseCSV = (text) => {
-    const lines = text.split(/\r?\n/);
-    if (lines.length < 2) return [];
-
-    const headers = parseCSVLine(lines[0]);
-    const rawItems = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
-      const values = parseCSVLine(lines[i]);
-
-      if (values.length >= headers.length) {
-        const item = {};
-        headers.forEach((header, index) => {
-          item[header.trim()] = values[index];
-        });
-        rawItems.push(item);
-      }
-    }
-    return normalizeData(rawItems);
-  };
-
-  const parseCSVLine = (line) => {
-    const result = [];
-    let insideQuote = false;
-    let entry = '';
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        insideQuote = !insideQuote;
-      } else if (char === ',' && !insideQuote) {
-        result.push(entry.trim().replace(/^"|"$/g, ''));
-        entry = '';
-      } else {
-        entry += char;
-      }
-    }
-    result.push(entry.trim().replace(/^"|"$/g, ''));
-    return result;
-  };
-
-  // CSV 다운로드 기능
-  const downloadCSV = () => {
-    if (data.length === 0) return;
-
-    const headers = ['Date_Time', 'Device_ID', 'Channel', 'Channel_Name', 'TOC_Conc', 'DilutionFactor', 'MSIG', 'Add_note'];
-    const csvRows = [headers.join(',')];
-
-    filteredData.forEach(row => {
-      const values = [
-        row.Date_Time,
-        row.Device_ID,
-        row.Channel,
-        `"${row.Channel_Name}"`,
-        row.TOC_Conc,
-        row.DilutionFactor,
-        row.MSIG,
-        `"${row.Add_note.replace(/"/g, '""')}"`
-      ];
-      csvRows.push(values.join(','));
-    });
-
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `TOC_B2B_Report_${new Date().toISOString().slice(0, 10)}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // 데이터 필터링 (X축 결합 전 원본 필터)
-  const filteredData = data.filter(item => {
-    // 1. 장비 필터
-    if (selectedDevice !== 'All' && item.Device_ID !== selectedDevice) {
-      return false;
-    }
-
-    // 2. 검색 텍스트 필터
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const matchDate = item.Date_Time.toLowerCase().includes(query);
-      const matchNote = item.Add_note.toLowerCase().includes(query);
-      const matchChName = item.Channel_Name.toLowerCase().includes(query);
-      const matchDev = item.Device_ID.toLowerCase().includes(query);
-      if (!matchDate && !matchNote && !matchChName && !matchDev) return false;
-    }
-
-    // 3. 시간 범위 필터
-    if (timeRange !== 'All') {
-      const itemDate = new Date(item.Date_Time.replace(/-/g, '/'));
-      const now = new Date();
-
-      const maxDate = data.length > 0 ? new Date(data[data.length - 1].Date_Time.replace(/-/g, '/')) : now;
-      const diffTime = Math.abs(maxDate - itemDate);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-      if (timeRange === '24h' && diffDays > 1) return false;
-      if (timeRange === '3d' && diffDays > 3) return false;
-      if (timeRange === '7d' && diffDays > 7) return false;
-    }
-
-    return true;
-  }).sort((a, b) => {
-    const dateA = new Date(a.Date_Time.replace(/-/g, '/'));
-    const dateB = new Date(b.Date_Time.replace(/-/g, '/'));
-    return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
-  });
-
-  // 요약 KPI 연산
-  const getStats = () => {
-    if (filteredData.length === 0) return { latest: 0, max: 0, avg: 0, count: 0, status: 'Offline' };
-
-    const sortedByTime = [...filteredData].sort((a, b) => new Date(a.Date_Time.replace(/-/g, '/')) - new Date(b.Date_Time.replace(/-/g, '/')));
-    const latestItem = sortedByTime[sortedByTime.length - 1];
-
-    const latest = latestItem.TOC_Conc;
-    const count = filteredData.length;
-
-    const values = filteredData.map(item => item.TOC_Conc);
-    const max = Math.max(...values);
-    const avg = parseFloat((values.reduce((sum, val) => sum + val, 0) / count).toFixed(2));
-
-    const latestTime = new Date(latestItem.Date_Time.replace(/-/g, '/'));
-    const maxTime = data.length > 0 ? new Date(data[data.length - 1].Date_Time.replace(/-/g, '/')) : new Date();
-    const timeDiffMinutes = Math.abs(maxTime - latestTime) / (1000 * 60);
-    const status = timeDiffMinutes < 60 ? 'Active' : 'Standby';
-
-    return { latest, max, avg, count, status, latestItem };
-  };
-
-  const stats = getStats();
-
-  // 바 차트용 채널 통계 집계
-  const getChannelStats = () => {
-    const channelGroups = {};
-    filteredData.forEach(item => {
-      const chName = item.Channel_Name;
-      if (!channelGroups[chName]) {
-        channelGroups[chName] = { name: chName, sum: 0, max: 0, count: 0 };
-      }
-      channelGroups[chName].sum += item.TOC_Conc;
-      channelGroups[chName].count += 1;
-      if (item.TOC_Conc > channelGroups[chName].max) {
-        channelGroups[chName].max = item.TOC_Conc;
-      }
-    });
-
-    return Object.values(channelGroups).map(group => ({
-      name: group.name,
-      '평균 TOC': parseFloat((group.sum / group.count).toFixed(2)),
-      '최대 TOC': parseFloat(group.max.toFixed(2))
-    }));
-  };
-
-  const channelStats = getChannelStats();
+  // =========================================================================
+  // 전체 데이터에서 사용 가능한 채널 목록
+  // =========================================================================
+  const allChannels = useMemo(() => {
+    const channels = new Set();
+    data.forEach(item => channels.add(item.Channel_Name));
+    return Array.from(channels).sort();
+  }, [data]);
 
   // =========================================================================
-  // [핵심] 다중 채널 시계열 선형 오버랩을 위한 X축 Time-slotting 결합 엔진
-  // 시간대별로 번갈아 들어오는 채널 데이터를 단일 버킷(30분/1시간 단위)으로 보간
+  // 트렌드 차트용 시간 필터링된 데이터
   // =========================================================================
-  const getMultiSeriesChartData = () => {
-    if (filteredData.length === 0) return [];
+  const trendFilteredData = useMemo(() => {
+    if (data.length === 0) return [];
+
+    const lastDate = parseDate(data[data.length - 1].Date_Time);
+
+    return data.filter(item => {
+      const itemDate = parseDate(item.Date_Time);
+
+      if (timeRange === '24h') {
+        return (lastDate - itemDate) <= 24 * 60 * 60 * 1000;
+      } else if (timeRange === '7d') {
+        return (lastDate - itemDate) <= 7 * 24 * 60 * 60 * 1000;
+      } else if (timeRange === '30d') {
+        return (lastDate - itemDate) <= 30 * 24 * 60 * 60 * 1000;
+      } else if (timeRange === 'custom') {
+        const start = customStart ? new Date(customStart) : new Date(0);
+        const end = customEnd ? new Date(customEnd) : new Date();
+        return itemDate >= start && itemDate <= end;
+      }
+      // 'All'
+      return true;
+    });
+  }, [data, timeRange, customStart, customEnd]);
+
+  // =========================================================================
+  // 동적 버킷 크기 결정 + 다중 채널 시계열 차트 데이터 생성
+  // =========================================================================
+  const chartData = useMemo(() => {
+    if (trendFilteredData.length === 0) return [];
+
+    // 데이터 포인트 수에 따라 버킷 크기 자동 결정
+    const dataCount = trendFilteredData.length;
+    let bucketMinutes;
+    if (dataCount <= 200) {
+      bucketMinutes = 15;    // 15분 버킷
+    } else if (dataCount <= 1000) {
+      bucketMinutes = 30;    // 30분 버킷
+    } else if (dataCount <= 3000) {
+      bucketMinutes = 60;    // 1시간 버킷
+    } else if (dataCount <= 8000) {
+      bucketMinutes = 240;   // 4시간 버킷
+    } else {
+      bucketMinutes = 1440;  // 1일 버킷
+    }
 
     const timeSlots = {};
 
-    // 시간 오름차순 정렬
-    const sorted = [...filteredData].sort((a, b) => new Date(a.Date_Time.replace(/-/g, '/')) - new Date(b.Date_Time.replace(/-/g, '/')));
+    trendFilteredData.forEach(item => {
+      const d = parseDate(item.Date_Time);
+      if (isNaN(d.getTime())) return;
 
-    sorted.forEach(item => {
-      // YYYY-MM-DD HH:MM:SS -> 분 단위를 30분 단위 버킷으로 묶어 엇갈린 측정 시간 축을 결합!
-      // 예: 13:33:57 -> 13:30 / 13:48:57 -> 13:30 또는 13:45로 타이트하게 바인딩
-      const datePart = item.Date_Time.slice(0, 10);
-      const timePart = item.Date_Time.slice(11, 16);
-      const hours = parseInt(timePart.slice(0, 2));
-      const minutes = parseInt(timePart.slice(3, 5));
+      // 버킷 시간 계산
+      const totalMinutes = d.getHours() * 60 + d.getMinutes();
+      const bucketStart = Math.floor(totalMinutes / bucketMinutes) * bucketMinutes;
+      const bucketHour = String(Math.floor(bucketStart / 60)).padStart(2, '0');
+      const bucketMin = String(bucketStart % 60).padStart(2, '0');
 
-      const bucketMinutes = minutes < 30 ? '00' : '30';
-      const timeBucket = `${datePart} ${String(hours).padStart(2, '0')}:${bucketMinutes}`;
+      const datePart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const timeBucket = `${datePart} ${bucketHour}:${bucketMin}`;
 
       if (!timeSlots[timeBucket]) {
         timeSlots[timeBucket] = {
           TimeBucket: timeBucket,
-          ShortTime: timeBucket.slice(5),
+          ShortTime: `${datePart.slice(5)} ${bucketHour}:${bucketMin}`,
+          _counts: {}
         };
       }
 
-      const attributeValue = selectedAttr === 'TOC_Conc' ? item.TOC_Conc : item.MSIG;
-      timeSlots[timeBucket][item.Channel_Name] = attributeValue;
+      const chName = item.Channel_Name;
+      const val = selectedAttr === 'TOC_Conc' ? item.TOC_Conc : item.MSIG;
+
+      // 같은 버킷/채널에 여러 값이 있으면 평균 계산
+      if (!timeSlots[timeBucket]._counts[chName]) {
+        timeSlots[timeBucket]._counts[chName] = { sum: 0, count: 0 };
+      }
+      timeSlots[timeBucket]._counts[chName].sum += val;
+      timeSlots[timeBucket]._counts[chName].count += 1;
     });
 
-    return Object.values(timeSlots).slice(-300);
-  };
+    // 평균값 계산 후 _counts 제거
+    const result = Object.values(timeSlots).map(slot => {
+      const entry = { TimeBucket: slot.TimeBucket, ShortTime: slot.ShortTime };
+      for (const [chName, agg] of Object.entries(slot._counts)) {
+        entry[chName] = parseFloat((agg.sum / agg.count).toFixed(2));
+      }
+      return entry;
+    });
 
-  const chartData = getMultiSeriesChartData();
+    return result;
+  }, [trendFilteredData, selectedAttr]);
 
-  // 대시보드 내에 실제로 등장한 모든 채널명 고유 목록
-  const getActiveChannels = () => {
+  // 트렌드에 실제 등장하는 채널들
+  const trendChannels = useMemo(() => {
     const channels = new Set();
-    filteredData.forEach(item => channels.add(item.Channel_Name));
+    trendFilteredData.forEach(item => channels.add(item.Channel_Name));
     return Array.from(channels);
-  };
+  }, [trendFilteredData]);
 
-  const activeChannels = getActiveChannels();
+  // 데이터 시간 범위 표시
+  const dataTimeRange = useMemo(() => {
+    if (trendFilteredData.length === 0) return '';
+    const first = trendFilteredData[0].Date_Time;
+    const last = trendFilteredData[trendFilteredData.length - 1].Date_Time;
+    return `${first} ~ ${last}`;
+  }, [trendFilteredData]);
+
+  // =========================================================================
+  // 테이블용 필터링 + 정렬 (최근 데이터 먼저)
+  // =========================================================================
+  const tableFilteredData = useMemo(() => {
+    return data.filter(item => {
+      // 채널 필터
+      if (tableChannelFilter !== 'All' && item.Channel_Name !== tableChannelFilter) {
+        return false;
+      }
+      // TOC 농도 범위 필터
+      if (tableTocMin !== '' && item.TOC_Conc < parseFloat(tableTocMin)) {
+        return false;
+      }
+      if (tableTocMax !== '' && item.TOC_Conc > parseFloat(tableTocMax)) {
+        return false;
+      }
+      // 텍스트 검색
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const match = item.Date_Time.toLowerCase().includes(q)
+          || item.Channel_Name.toLowerCase().includes(q)
+          || item.Device_ID.toLowerCase().includes(q)
+          || item.Add_note.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      // 최근 데이터 먼저 (desc)
+      return parseDate(b.Date_Time) - parseDate(a.Date_Time);
+    });
+  }, [data, tableChannelFilter, tableTocMin, tableTocMax, searchQuery]);
 
   // 테이블 페이징
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const paginatedTableData = filteredData.slice(
+  const totalPages = Math.ceil(tableFilteredData.length / itemsPerPage);
+  const paginatedData = tableFilteredData.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
 
+  // 페이지 초기화 (필터 변경 시)
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [tableChannelFilter, tableTocMin, tableTocMax, searchQuery, itemsPerPage]);
+
+  // =========================================================================
+  // 보안 접속 화면
+  // =========================================================================
   if (!isUnlocked) {
     return (
       <div style={{
@@ -388,11 +370,8 @@ function App() {
             onChange={(e) => { setPasscode(e.target.value); setLoginError(false); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                if (passcode === '850') {
-                  setIsUnlocked(true);
-                } else {
-                  setLoginError(true);
-                }
+                if (passcode === '850') setIsUnlocked(true);
+                else setLoginError(true);
               }
             }}
           />
@@ -401,11 +380,8 @@ function App() {
             className="sim-btn"
             style={{ width: '100%' }}
             onClick={() => {
-              if (passcode === '850') {
-                setIsUnlocked(true);
-              } else {
-                setLoginError(true);
-              }
+              if (passcode === '850') setIsUnlocked(true);
+              else setLoginError(true);
             }}
           >
             대시보드 접속 🔑
@@ -415,25 +391,30 @@ function App() {
     );
   }
 
+  // =========================================================================
+  // 메인 대시보드
+  // =========================================================================
   return (
     <div className="dashboard-container">
-      {/* HEADER SECTION */}
+      {/* HEADER */}
       <header className="dashboard-header">
         <div className="header-title-section">
           <h1>LAS TOC-850 온라인 계측 모니터링 대시보드</h1>
-          <p>LAS KOREA 제공</p>
+          <p>LAS KOREA 제공 · 총 {data.length.toLocaleString()}건 수집</p>
         </div>
         <div className="header-controls">
-          <button className="filter-btn active" onClick={loadData}>새로고침 🔄</button>
+          <button className="filter-btn active" onClick={loadData}>
+            {loading ? '로딩 중...' : '새로고침 🔄'}
+          </button>
         </div>
       </header>
 
-      {/* ERROR / LOADING HANDLERS */}
+      {/* LOADING / ERROR */}
       {loading && data.length === 0 ? (
         <div className="glass-card empty-placeholder">
           <div className="status-dot" style={{ width: '40px', height: '40px' }}></div>
-          <h2>데이터 스트림 연결 중...</h2>
-          <p>Supabase PostgreSQL 클라우드 엔진으로부터 실시간 정보를 당겨오고 있습니다.</p>
+          <h2>데이터 로딩 중...</h2>
+          <p>{loadProgress}</p>
         </div>
       ) : error && data.length === 0 ? (
         <div className="glass-card empty-placeholder" style={{ borderColor: 'var(--accent-rose)' }}>
@@ -443,130 +424,234 @@ function App() {
         </div>
       ) : (
         <>
-          {/* CHARTS SECTION */}
-          <section style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
-            <div className="glass-card chart-card">
-              <div className="chart-header">
-                <div>
-                  <h3 className="chart-title">TOC & Signal Multi-Series Trend</h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          {/* ============================================ */}
+          {/* TOC & Signal Multi-Series Trend              */}
+          {/* ============================================ */}
+          <section className="glass-card chart-card">
+            <div className="chart-header">
+              <div>
+                <h3 className="chart-title">TOC & Signal Multi-Series Trend</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: '4px' }}>
+                  {dataTimeRange && `📅 ${dataTimeRange}`}
+                  {trendFilteredData.length > 0 && ` · ${trendFilteredData.length.toLocaleString()}건`}
+                </p>
+              </div>
 
-                  </p>
-                </div>
-
-                <div className="header-controls" style={{ gap: '8px', flexWrap: 'wrap' }}>
-                  <div className="filter-button-group">
-                    <button
-                      className={`filter-btn ${selectedAttr === 'TOC_Conc' ? 'active' : ''}`}
-                      onClick={() => setSelectedAttr('TOC_Conc')}
-                    >
-                      TOC 농도 (ppm)
-                    </button>
-                    <button
-                      className={`filter-btn ${selectedAttr === 'MSIG' ? 'active' : ''}`}
-                      onClick={() => setSelectedAttr('MSIG')}
-                    >
-                      측정 신호 (MSIG)
-                    </button>
-                  </div>
-
-                  <select
-                    className="custom-select"
-                    style={{ padding: '6px 12px', fontSize: '0.82rem' }}
-                    value={timeRange}
-                    onChange={(e) => { setTimeRange(e.target.value); setCurrentPage(1); }}
+              <div className="header-controls" style={{ gap: '8px', flexWrap: 'wrap' }}>
+                {/* TOC / MSIG 전환 */}
+                <div className="filter-button-group">
+                  <button
+                    className={`filter-btn ${selectedAttr === 'TOC_Conc' ? 'active' : ''}`}
+                    onClick={() => setSelectedAttr('TOC_Conc')}
                   >
-                    <option value="24h">최근 24시간</option>
-                    <option value="3d">최근 3일</option>
-                    <option value="7d">최근 7일</option>
-                    <option value="All">전체 기간</option>
-                  </select>
+                    TOC 농도
+                  </button>
+                  <button
+                    className={`filter-btn ${selectedAttr === 'MSIG' ? 'active' : ''}`}
+                    onClick={() => setSelectedAttr('MSIG')}
+                  >
+                    MSIG
+                  </button>
                 </div>
-              </div>
 
-              <div style={{ width: '100%', height: 400 }}>
-                {chartData.length === 0 ? (
-                  <div className="empty-placeholder" style={{ padding: '40px 0' }}>
-                    <p>선택한 조건에 부합하는 시계열 데이터가 존재하지 않습니다.</p>
-                  </div>
-                ) : (
-                  <ResponsiveContainer>
-                    <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                      <XAxis dataKey="ShortTime" stroke="var(--text-muted)" fontSize={11} />
-                      <YAxis stroke="var(--text-muted)" fontSize={11} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'var(--bg-tertiary)',
-                          borderColor: 'var(--border-hover)',
-                          borderRadius: '8px',
-                          color: 'var(--text-main)'
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
-                      {activeChannels.map(chName => (
-                        <Line
-                          key={chName}
-                          type="monotone"
-                          dataKey={chName}
-                          name={chName}
-                          stroke={LINE_COLORS[chName] || LINE_COLORS['기타 채널']}
-                          strokeWidth={2}
-                          dot={{ r: 3, strokeWidth: 1 }}
-                          activeDot={{ r: 5 }}
-                          connectNulls={true}
-                        />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
+                {/* 시간 범위 드롭다운 */}
+                <select
+                  className="custom-select"
+                  style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
+                >
+                  <option value="24h">최근 24시간</option>
+                  <option value="7d">최근 7일</option>
+                  <option value="30d">최근 30일</option>
+                  <option value="All">전체 기간</option>
+                  <option value="custom">직접 지정</option>
+                </select>
               </div>
+            </div>
+
+            {/* 커스텀 시간 범위 입력 */}
+            {timeRange === 'custom' && (
+              <div className="custom-time-range">
+                <label>
+                  <span>시작</span>
+                  <input
+                    type="datetime-local"
+                    className="custom-select datetime-input"
+                    value={customStart}
+                    onChange={(e) => setCustomStart(e.target.value)}
+                  />
+                </label>
+                <span className="time-range-separator">~</span>
+                <label>
+                  <span>종료</span>
+                  <input
+                    type="datetime-local"
+                    className="custom-select datetime-input"
+                    value={customEnd}
+                    onChange={(e) => setCustomEnd(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+
+            <div style={{ width: '100%', height: 400 }}>
+              {chartData.length === 0 ? (
+                <div className="empty-placeholder" style={{ padding: '40px 0' }}>
+                  <p>선택한 조건에 부합하는 시계열 데이터가 없습니다.</p>
+                </div>
+              ) : (
+                <ResponsiveContainer>
+                  <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                    <XAxis
+                      dataKey="ShortTime"
+                      stroke="var(--text-muted)"
+                      fontSize={11}
+                      interval="preserveStartEnd"
+                      tickCount={8}
+                    />
+                    <YAxis stroke="var(--text-muted)" fontSize={11} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--bg-tertiary)',
+                        borderColor: 'var(--border-hover)',
+                        borderRadius: '8px',
+                        color: 'var(--text-main)'
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
+                    {trendChannels.map(chName => (
+                      <Line
+                        key={chName}
+                        type="monotone"
+                        dataKey={chName}
+                        name={chName}
+                        stroke={LINE_COLORS[chName] || LINE_COLORS['기타 채널']}
+                        strokeWidth={2}
+                        dot={chartData.length <= 100 ? { r: 3, strokeWidth: 1 } : false}
+                        activeDot={{ r: 5 }}
+                        connectNulls={true}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </section>
 
-          {/* HISTORICAL TABLE SECTION */}
+          {/* ============================================ */}
+          {/* 측정 이력 상세 데이터                         */}
+          {/* ============================================ */}
           <section className="glass-card table-card">
             <div className="chart-header">
               <div>
                 <h3 className="chart-title">측정 이력 상세 데이터</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  조회 일치 데이터 총 {filteredData.length}건
+                  총 {data.length.toLocaleString()}건 중 {tableFilteredData.length.toLocaleString()}건 조회
                 </p>
               </div>
             </div>
 
+            {/* 테이블 필터 바 */}
+            <div className="table-filters">
+              <div className="filter-group">
+                <label>채널</label>
+                <select
+                  className="custom-select"
+                  value={tableChannelFilter}
+                  onChange={(e) => setTableChannelFilter(e.target.value)}
+                >
+                  <option value="All">전체 채널</option>
+                  {allChannels.map(ch => (
+                    <option key={ch} value={ch}>{ch}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="filter-group">
+                <label>TOC 최소</label>
+                <input
+                  type="number"
+                  className="custom-select"
+                  placeholder="예: 0"
+                  value={tableTocMin}
+                  onChange={(e) => setTableTocMin(e.target.value)}
+                  style={{ width: '100px' }}
+                />
+              </div>
+
+              <div className="filter-group">
+                <label>TOC 최대</label>
+                <input
+                  type="number"
+                  className="custom-select"
+                  placeholder="예: 100"
+                  value={tableTocMax}
+                  onChange={(e) => setTableTocMax(e.target.value)}
+                  style={{ width: '100px' }}
+                />
+              </div>
+
+              <div className="filter-group">
+                <label>검색</label>
+                <input
+                  type="text"
+                  className="custom-select"
+                  placeholder="날짜, 채널, 비고..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ width: '180px' }}
+                />
+              </div>
+
+              <div className="filter-group">
+                <label>페이지당</label>
+                <select
+                  className="custom-select"
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                >
+                  <option value={25}>25건</option>
+                  <option value={50}>50건</option>
+                  <option value={100}>100건</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 데이터 테이블 */}
             <div className="table-wrapper">
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>측정 일시</th>
-                    <th>장비 ID (Device ID)</th>
+                    <th>장비 ID</th>
                     <th>채널</th>
                     <th>채널 이름</th>
                     <th>TOC 농도</th>
                     <th>희석 배수</th>
-                    <th>측정 신호 (MSIG)</th>
-                    <th>기기 가동 비고 (Add Note)</th>
+                    <th>MSIG</th>
+                    <th>비고</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedTableData.length === 0 ? (
+                  {paginatedData.length === 0 ? (
                     <tr>
                       <td colSpan="8" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-                        필터 또는 검색 조건에 부합하는 계측 데이터가 존재하지 않습니다.
+                        필터 조건에 부합하는 데이터가 없습니다.
                       </td>
                     </tr>
                   ) : (
-                    paginatedTableData.map((row, index) => (
+                    paginatedData.map((row, index) => (
                       <tr key={index}>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.Date_Time}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
                         <td style={{ color: 'var(--accent-cyan)', fontWeight: 600, fontFamily: 'monospace' }}>{row.Device_ID}</td>
                         <td>{row.Channel}</td>
                         <td style={{ fontWeight: 500 }}>{row.Channel_Name}</td>
                         <td style={{ fontWeight: 600 }}>{row.TOC_Conc} ppm</td>
                         <td>{row.DilutionFactor}x</td>
                         <td style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>{row.MSIG}</td>
-                        <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.Add_note}>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.Add_note}>
                           {row.Add_note}
                         </td>
                       </tr>
@@ -576,27 +661,39 @@ function App() {
               </table>
             </div>
 
-            {/* PAGING CONTROLS */}
+            {/* 페이징 */}
             {totalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '10px' }}>
+              <div className="table-pagination">
                 <button
                   className="filter-btn"
-                  style={{ background: 'var(--bg-tertiary)' }}
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(1)}
+                >
+                  ◀◀
+                </button>
+                <button
+                  className="filter-btn"
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                 >
                   ◀ 이전
                 </button>
                 <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                  페이지 <strong>{currentPage}</strong> / {totalPages}
+                  <strong>{currentPage}</strong> / {totalPages} 페이지
                 </span>
                 <button
                   className="filter-btn"
-                  style={{ background: 'var(--bg-tertiary)' }}
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                 >
                   다음 ▶
+                </button>
+                <button
+                  className="filter-btn"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(totalPages)}
+                >
+                  ▶▶
                 </button>
               </div>
             )}
