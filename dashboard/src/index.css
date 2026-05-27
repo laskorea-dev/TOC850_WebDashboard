@@ -431,3 +431,154 @@ body {
   font-size: 3.5rem;
   opacity: 0.3;
 }
+
+/* =========================================
+   Table Filter Bar
+   ========================================= */
+.table-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-group label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.filter-group .custom-select,
+.filter-group input[type="number"],
+.filter-group input[type="text"] {
+  padding: 7px 12px;
+  font-size: 0.85rem;
+}
+
+/* =========================================
+   Custom Time Range Picker
+   ========================================= */
+.custom-time-range {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: rgba(0, 242, 254, 0.04);
+  border: 1px solid rgba(0, 242, 254, 0.12);
+  border-radius: var(--border-radius-md);
+}
+
+.custom-time-range label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.custom-time-range label span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.time-range-separator {
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  font-weight: 300;
+  padding-bottom: 6px;
+}
+
+.datetime-input {
+  padding: 7px 12px !important;
+  font-size: 0.85rem !important;
+  min-width: 200px;
+  color-scheme: dark;
+}
+
+/* =========================================
+   Enhanced Pagination
+   ========================================= */
+.table-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.table-pagination .filter-btn {
+  background: var(--bg-tertiary);
+  min-width: 40px;
+}
+
+.table-pagination .filter-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* =========================================
+   Mobile Responsive
+   ========================================= */
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 16px 12px;
+    gap: 16px;
+  }
+
+  .header-title-section h1 {
+    font-size: 1.3rem;
+  }
+
+  .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .table-filters {
+    gap: 10px;
+  }
+
+  .filter-group {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .custom-time-range {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .datetime-input {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .time-range-separator {
+    text-align: center;
+  }
+
+  .data-table {
+    font-size: 0.8rem;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 10px 12px;
+  }
+}
