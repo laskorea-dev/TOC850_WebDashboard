@@ -7,7 +7,8 @@ import {
   ResponsiveContainer,
   Legend,
   LineChart,
-  Line
+  Line,
+  Brush
 } from 'recharts';
 
 // =========================================================================
@@ -90,6 +91,9 @@ function App() {
   const [timeRange, setTimeRange] = useState('7d');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+
+  // 차트 채널 표시/숨김 토글
+  const [hiddenChannels, setHiddenChannels] = useState(new Set());
 
   // 테이블 필터
   const [tableChannelFilter, setTableChannelFilter] = useState('All');
@@ -291,6 +295,48 @@ function App() {
     return Array.from(channels);
   }, [trendFilteredData]);
 
+  // 현재 표시 중인 채널들 (숨긴 채널 제외)
+  const visibleChannels = useMemo(() => {
+    return trendChannels.filter(ch => !hiddenChannels.has(ch));
+  }, [trendChannels, hiddenChannels]);
+
+  // Y축 도메인: 표시 중인 채널 데이터만 기준으로 오토스케일
+  const yDomain = useMemo(() => {
+    if (visibleChannels.length === 0 || chartData.length === 0) return ['auto', 'auto'];
+    let min = Infinity;
+    let max = -Infinity;
+    chartData.forEach(slot => {
+      visibleChannels.forEach(ch => {
+        const val = slot[ch];
+        if (val !== undefined && val !== null) {
+          if (val < min) min = val;
+          if (val > max) max = val;
+        }
+      });
+    });
+    if (min === Infinity) return ['auto', 'auto'];
+    // 상하 5% 여백
+    const padding = (max - min) * 0.05 || 1;
+    return [Math.max(0, Math.floor(min - padding)), Math.ceil(max + padding)];
+  }, [visibleChannels, chartData]);
+
+  // 범례 클릭 핸들러: 채널 표시/숨김 토글
+  const handleLegendClick = useCallback((entry) => {
+    const chName = entry.dataKey || entry.value;
+    setHiddenChannels(prev => {
+      const next = new Set(prev);
+      if (next.has(chName)) {
+        next.delete(chName);
+      } else {
+        // 최소 1개는 표시
+        if (trendChannels.length - next.size > 1) {
+          next.add(chName);
+        }
+      }
+      return next;
+    });
+  }, [trendChannels]);
+
   // 데이터 시간 범위 표시
   const dataTimeRange = useMemo(() => {
     if (trendFilteredData.length === 0) return '';
@@ -298,6 +344,27 @@ function App() {
     const last = trendFilteredData[trendFilteredData.length - 1].Date_Time;
     return `${first} ~ ${last}`;
   }, [trendFilteredData]);
+
+  // CSV 다운로드
+  const downloadCSV = useCallback(() => {
+    if (tableFilteredData.length === 0) return;
+    const headers = ['Date_Time','Device_ID','Channel','Channel_Name','TOC_Conc','DilutionFactor','MSIG','SLOP','ICPT','FACT','OFST','Add_note'];
+    const rows = [headers.join(',')];
+    tableFilteredData.forEach(r => {
+      rows.push([
+        r.Date_Time, r.Device_ID, r.Channel, `"${r.Channel_Name}"`,
+        r.TOC_Conc, r.DilutionFactor, r.MSIG, r.SLOP, r.ICPT, r.FACT, r.OFST,
+        `"${(r.Add_note || '').replace(/"/g, '""')}"`
+      ].join(','));
+    });
+    const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TOC_Data_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [tableFilteredData]);
 
   // =========================================================================
   // 테이블용 필터링 + 정렬 (최근 데이터 먼저)
@@ -495,14 +562,45 @@ function App() {
               </div>
             )}
 
-            <div style={{ width: '100%', height: 400 }}>
+            {/* 채널 토글 칩 */}
+            <div className="channel-chips">
+              {trendChannels.map(chName => {
+                const isHidden = hiddenChannels.has(chName);
+                const color = LINE_COLORS[chName] || LINE_COLORS['기타 채널'];
+                return (
+                  <button
+                    key={chName}
+                    className={`channel-chip ${isHidden ? 'hidden' : ''}`}
+                    style={{
+                      '--chip-color': color,
+                      borderColor: isHidden ? 'var(--border-color)' : color,
+                      background: isHidden ? 'transparent' : `${color}15`
+                    }}
+                    onClick={() => handleLegendClick({ dataKey: chName })}
+                  >
+                    <span className="chip-dot" style={{ background: isHidden ? 'var(--text-muted)' : color }}></span>
+                    {chName}
+                  </button>
+                );
+              })}
+              {hiddenChannels.size > 0 && (
+                <button
+                  className="channel-chip reset-chip"
+                  onClick={() => setHiddenChannels(new Set())}
+                >
+                  전체 표시
+                </button>
+              )}
+            </div>
+
+            <div style={{ width: '100%', height: 420 }}>
               {chartData.length === 0 ? (
                 <div className="empty-placeholder" style={{ padding: '40px 0' }}>
                   <p>선택한 조건에 부합하는 시계열 데이터가 없습니다.</p>
                 </div>
               ) : (
                 <ResponsiveContainer>
-                  <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <LineChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                     <XAxis
                       dataKey="ShortTime"
@@ -511,7 +609,12 @@ function App() {
                       interval="preserveStartEnd"
                       tickCount={8}
                     />
-                    <YAxis stroke="var(--text-muted)" fontSize={11} />
+                    <YAxis
+                      stroke="var(--text-muted)"
+                      fontSize={11}
+                      domain={yDomain}
+                      allowDataOverflow={true}
+                    />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: 'var(--bg-tertiary)',
@@ -520,7 +623,6 @@ function App() {
                         color: 'var(--text-main)'
                       }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
                     {trendChannels.map(chName => (
                       <Line
                         key={chName}
@@ -528,12 +630,22 @@ function App() {
                         dataKey={chName}
                         name={chName}
                         stroke={LINE_COLORS[chName] || LINE_COLORS['기타 채널']}
-                        strokeWidth={2}
-                        dot={chartData.length <= 100 ? { r: 3, strokeWidth: 1 } : false}
-                        activeDot={{ r: 5 }}
+                        strokeWidth={hiddenChannels.has(chName) ? 0 : 2}
+                        dot={!hiddenChannels.has(chName) && chartData.length <= 100 ? { r: 3, strokeWidth: 1 } : false}
+                        activeDot={hiddenChannels.has(chName) ? false : { r: 5 }}
                         connectNulls={true}
+                        hide={hiddenChannels.has(chName)}
                       />
                     ))}
+                    {chartData.length > 20 && (
+                      <Brush
+                        dataKey="ShortTime"
+                        height={28}
+                        stroke="var(--accent-cyan)"
+                        fill="var(--bg-tertiary)"
+                        travellerWidth={10}
+                      />
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -551,6 +663,9 @@ function App() {
                   총 {data.length.toLocaleString()}건 중 {tableFilteredData.length.toLocaleString()}건 조회
                 </p>
               </div>
+              <button className="filter-btn active" onClick={downloadCSV} disabled={tableFilteredData.length === 0}>
+                CSV 다운로드 📥
+              </button>
             </div>
 
             {/* 테이블 필터 바 */}
