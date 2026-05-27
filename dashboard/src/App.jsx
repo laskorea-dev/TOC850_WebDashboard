@@ -49,12 +49,8 @@ const normalizeData = (items) => {
     const tocVal = parseFloat(item.TOC_Conc);
     const channelNum = parseInt(item.Channel);
     
-    let resolvedChannelName = item.Channel_Name;
-    if (!resolvedChannelName || resolvedChannelName === '') {
-      resolvedChannelName = CHANNEL_NAME_MAP[channelNum] || `채널 ${channelNum}`;
-    } else if (resolvedChannelName === 'Լ') {
-      resolvedChannelName = '유입수 (Influent)';
-    }
+    // 항상 CHANNEL_NAME_MAP을 우선 사용하여 깨진 채널명 원천 차단
+    const resolvedChannelName = CHANNEL_NAME_MAP[channelNum] || item.Channel_Name || `채널 ${channelNum}`;
 
     return {
       Date_Time: item.Date_Time,
@@ -83,7 +79,7 @@ function App() {
   const [selectedDevice, setSelectedDevice] = useState('All');
   const [selectedAttr, setSelectedAttr] = useState('TOC_Conc'); // TOC_Conc or MSIG (꺾은선 물리속성 토글)
   const [searchQuery, setSearchQuery] = useState('');
-  const [timeRange, setTimeRange] = useState('7d'); // 24h, 3d, 7d, All
+  const [timeRange, setTimeRange] = useState('All'); // 24h, 3d, 7d, All (기본값 All로 설정하여 데이터 풍부하게 표출)
   const [sortOrder, setSortOrder] = useState('desc'); // desc, asc
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -321,29 +317,26 @@ function App() {
       const hours = parseInt(timePart.slice(0, 2));
       const minutes = parseInt(timePart.slice(3, 5));
       
-      // 30분 슬롯으로 버킷팅
       const bucketMinutes = minutes < 30 ? '00' : '30';
       const timeBucket = `${datePart} ${String(hours).padStart(2, '0')}:${bucketMinutes}`;
       
       if (!timeSlots[timeBucket]) {
         timeSlots[timeBucket] = {
           TimeBucket: timeBucket,
-          ShortTime: timeBucket.slice(5), // 차트 표기용
+          ShortTime: timeBucket.slice(5),
         };
       }
       
-      // 선택된 물리 속성(TOC 또는 MSIG) 값을 해당 채널명에 주입
       const attributeValue = selectedAttr === 'TOC_Conc' ? item.TOC_Conc : item.MSIG;
       timeSlots[timeBucket][item.Channel_Name] = attributeValue;
     });
 
-    // 슬롯 객체를 리스트로 풀어서 최근 40개 슬롯만 차트용으로 슬라이싱
-    return Object.values(timeSlots).slice(-40);
+    return Object.values(timeSlots).slice(-300);
   };
 
   const chartData = getMultiSeriesChartData();
 
-  // 대시보드 내에 실제로 등장한 모든 채널명 고유 목록 (Line 컴포넌트를 그리기 위함)
+  // 대시보드 내에 실제로 등장한 모든 채널명 고유 목록
   const getActiveChannels = () => {
     const channels = new Set();
     filteredData.forEach(item => channels.add(item.Channel_Name));
@@ -359,77 +352,6 @@ function App() {
     currentPage * itemsPerPage
   );
 
-  // 임계상태 배지
-  const getTOCBadge = (val) => {
-    if (val < 50) return <span className="badge badge-normal">정상 ({val} ppm)</span>;
-    if (val < 150) return <span className="badge badge-warning">경고 ({val} ppm)</span>;
-    return <span className="badge badge-danger">위험 ({val} ppm)</span>;
-  };
-
-  // 다중 계측기 시뮬레이션 데이터 교대 주입
-  const simulateNewData = () => {
-    const now = new Date();
-    // 엇갈려 들어오는 실제 DB 성격을 재현하기 위해, 1분씩 엇갈린 타임스탬프 설정
-    const nowStr1 = now.toISOString().replace('T', ' ').slice(0, 19);
-    
-    const randomToc1 = parseFloat((Math.random() * 200).toFixed(2));
-    const randomToc2 = parseFloat((Math.random() * 100).toFixed(2));
-    const randomToc3 = parseFloat((Math.random() * 1500).toFixed(2));
-
-    const simulatedRows = [
-      {
-        Date_Time: nowStr1,
-        Device_ID: 'DEVICE_01',
-        Channel: 1,
-        Channel_Name: '방류수 (Effluent)',
-        TOC_Conc: randomToc1,
-        DilutionFactor: 1.0,
-        MSIG: parseFloat((randomToc1 * 150 + 100).toFixed(2)),
-        SLOP: 160.94,
-        ICPT: 61.93,
-        FACT: 1.0,
-        OFST: 0.0,
-        MAXR: 200,
-        Add_note: '[SIM] Channel 1 방류 측정 완료'
-      },
-      {
-        Date_Time: new Date(now.getTime() + 15 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
-        Device_ID: 'DEVICE_01',
-        Channel: 2,
-        Channel_Name: '유입수 (Influent)',
-        TOC_Conc: randomToc2,
-        DilutionFactor: 1.0,
-        MSIG: parseFloat((randomToc2 * 150 + 100).toFixed(2)),
-        SLOP: 160.94,
-        ICPT: 61.93,
-        FACT: 1.0,
-        OFST: 0.0,
-        MAXR: 200,
-        Add_note: '[SIM] Channel 2 유입 측정 완료'
-      },
-      {
-        Date_Time: new Date(now.getTime() + 30 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
-        Device_ID: 'DEVICE_01',
-        Channel: 3,
-        Channel_Name: '1차처리 (Primary)',
-        TOC_Conc: randomToc3,
-        DilutionFactor: 5.0,
-        MSIG: parseFloat((randomToc3 * 30 + 100).toFixed(2)),
-        SLOP: 160.94,
-        ICPT: 61.93,
-        FACT: 1.0,
-        OFST: 0.0,
-        MAXR: 200,
-        Add_note: '[SIM] Channel 3 1차처리 측정 완료'
-      }
-    ];
-    
-    setData(prev => [...prev, ...simulatedRows]);
-    alert(`[시뮬레이션 완료] 엇갈린 측정 성격을 지닌 3개 채널(유입/방류/1차처리) 가상 데이터 3건이 15분 시간 격차로 안전하게 동기화되었습니다!`);
-  };
-
-  const uniqueDevices = ['All', ...new Set(data.map(item => item.Device_ID))];
-
   return (
     <div className="dashboard-container">
       {/* HEADER SECTION */}
@@ -439,24 +361,9 @@ function App() {
           <p>Supabase 서버리스 PostgreSQL 연동 실시간 다중 채널 관제 판넬</p>
         </div>
         <div className="header-controls">
-          <div className={`status-indicator ${stats.status === 'Offline' ? 'offline' : ''}`}>
-            <span className="status-dot"></span>
-            <span>시스템 가동: {stats.status === 'Active' ? '실시간 동기화 중 (Active)' : '정기 대기 모드 (Standby)'}</span>
-          </div>
           <button className="filter-btn active" onClick={loadData}>새로고침 🔄</button>
         </div>
       </header>
-
-      {/* MULTI-TENANT SIMULATOR PANEL */}
-      <div className="simulation-panel">
-        <div className="sim-info">
-          <h3>⚡ 다중 채널 엇갈린 계측 시뮬레이터</h3>
-          <p>
-            시간 흐름에 따라 각 채널(유입 → 방류 → 1차처리)이 순차적으로 번갈아가며 엇갈려 업로드되는 실제 기기 DB 성격을 주입하고, 시계열 차트가 이를 1개의 시각화 선으로 어떻게 바인딩해 비교 분석하는지 실시간 검증합니다.
-          </p>
-        </div>
-        <button className="sim-btn" onClick={simulateNewData}>B2B 엇갈린 데이터 주입 ➕</button>
-      </div>
 
       {/* ERROR / LOADING HANDLERS */}
       {loading && data.length === 0 ? (
@@ -473,64 +380,8 @@ function App() {
         </div>
       ) : (
         <>
-          {/* STATS SUMMARY SECTION */}
-          <section className="stats-grid">
-            <div className="glass-card stat-card">
-              <div className="stat-header">
-                <span>실시간 최신 TOC</span>
-                <span className="stat-icon">💧</span>
-              </div>
-              <div className="stat-value text-gradient-cyan-purple">
-                {stats.latest} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>ppm</span>
-              </div>
-              <div className="stat-footer neutral">
-                기기: {stats.latestItem?.Device_ID} | {stats.latestItem?.Channel_Name} ({stats.latestItem?.Date_Time?.slice(11)})
-              </div>
-            </div>
-
-            <div className="glass-card stat-card">
-              <div className="stat-header">
-                <span>필터 내 최대 TOC 농도</span>
-                <span className="stat-icon" style={{ color: 'var(--accent-rose)' }}>⚠️</span>
-              </div>
-              <div className="stat-value" style={{ color: stats.max > 150 ? 'var(--accent-rose)' : 'var(--text-main)' }}>
-                {stats.max} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>ppm</span>
-              </div>
-              <div className="stat-footer up">
-                경고 기준치 관리 모드 (1차처리 최대 1500ppm 가능)
-              </div>
-            </div>
-
-            <div className="glass-card stat-card">
-              <div className="stat-header">
-                <span>필터 내 평균 TOC 농도</span>
-                <span className="stat-icon" style={{ color: 'var(--accent-cyan)' }}>📊</span>
-              </div>
-              <div className="stat-value">
-                {stats.avg} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>ppm</span>
-              </div>
-              <div className="stat-footer down">
-                기기 전체 가동 기간 가중평균
-              </div>
-            </div>
-
-            <div className="glass-card stat-card">
-              <div className="stat-header">
-                <span>총 계측 데이터 수</span>
-                <span className="stat-icon" style={{ color: 'var(--accent-purple)' }}>🗄️</span>
-              </div>
-              <div className="stat-value">
-                {stats.count} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>건</span>
-              </div>
-              <div className="stat-footer neutral">
-                클라우드 동기화 완료 및 영구 보존 됨
-              </div>
-            </div>
-          </section>
-
           {/* CHARTS SECTION */}
-          <section className="charts-grid">
-            {/* [고도화 완료] 사용자의 손그림 요구사항을 100% 만족하는 다중 채널 비교 꺾은선 시계열 차트 */}
+          <section style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
             <div className="glass-card chart-card">
               <div className="chart-header">
                 <div>
@@ -541,7 +392,6 @@ function App() {
                 </div>
                 
                 <div className="header-controls" style={{ gap: '8px', flexWrap: 'wrap' }}>
-                  {/* [신규] 계측기 물리 속성 토글 스위치 (TOC 농도 vs MSIG 신호) */}
                   <div className="filter-button-group">
                     <button 
                       className={`filter-btn ${selectedAttr === 'TOC_Conc' ? 'active' : ''}`}
@@ -557,21 +407,6 @@ function App() {
                     </button>
                   </div>
 
-                  {/* 장비 선택 필터 */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <select
-                      className="custom-select"
-                      style={{ padding: '6px 12px', fontSize: '0.82rem' }}
-                      value={selectedDevice}
-                      onChange={(e) => { setSelectedDevice(e.target.value); setCurrentPage(1); }}
-                    >
-                      {uniqueDevices.map(dev => (
-                        <option key={dev} value={dev}>{dev === 'All' ? '전체 계측기 통합' : `계측기: ${dev}`}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* 시간 범위 필터 */}
                   <select 
                     className="custom-select" 
                     style={{ padding: '6px 12px', fontSize: '0.82rem' }}
@@ -586,28 +421,17 @@ function App() {
                 </div>
               </div>
               
-              <div style={{ width: '100%', height: 320 }}>
+              <div style={{ width: '100%', height: 400 }}>
                 {chartData.length === 0 ? (
                   <div className="empty-placeholder" style={{ padding: '40px 0' }}>
                     <p>선택한 조건에 부합하는 시계열 데이터가 존재하지 않습니다.</p>
                   </div>
                 ) : (
                   <ResponsiveContainer>
-                    <LineChart
-                      data={chartData}
-                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                    >
+                    <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                      <XAxis 
-                        dataKey="ShortTime" 
-                        stroke="var(--text-muted)" 
-                        fontSize={11}
-                      />
-                      <YAxis 
-                        stroke="var(--text-muted)" 
-                        fontSize={11} 
-                        unit={selectedAttr === 'TOC_Conc' ? 'ppm' : ''} 
-                      />
+                      <XAxis dataKey="ShortTime" stroke="var(--text-muted)" fontSize={11} />
+                      <YAxis stroke="var(--text-muted)" fontSize={11} />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: 'var(--bg-tertiary)',
@@ -617,8 +441,6 @@ function App() {
                         }}
                       />
                       <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
-                      
-                      {/* 데이터로부터 추출한 액티브한 모든 채널의 꺾은선을 동적 렌더링 배치! */}
                       {activeChannels.map(chName => (
                         <Line
                           key={chName}
@@ -629,67 +451,12 @@ function App() {
                           strokeWidth={2}
                           dot={{ r: 3, strokeWidth: 1 }}
                           activeDot={{ r: 5 }}
-                          connectNulls={true} // 엇갈려 있는 시간 버킷 간의 선을 매끄럽게 연결!
+                          connectNulls={true}
                         />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
                 )}
-              </div>
-            </div>
-
-            {/* 채널별 평균/최대 비교 바 차트 */}
-            <div className="glass-card chart-card">
-              <div className="chart-header">
-                <div>
-                  <h3 className="chart-title">Channel Analysis</h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>채널별 평균 vs 최대 농도 분석</p>
-                </div>
-              </div>
-              
-              <div style={{ width: '100%', height: 320 }}>
-                {channelStats.length === 0 ? (
-                  <div className="empty-placeholder" style={{ padding: '40px 0' }}>
-                    <p>비교 데이터가 없습니다.</p>
-                  </div>
-                ) : (
-                  <ResponsiveContainer>
-                    <BarChart
-                      data={channelStats}
-                      margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                      <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={11} />
-                      <YAxis stroke="var(--text-muted)" fontSize={11} unit="ppm" />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'var(--bg-tertiary)',
-                          borderColor: 'var(--border-hover)',
-                          borderRadius: '8px',
-                          color: 'var(--text-main)'
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
-                      <Bar dataKey="평균 TOC" radius={[4, 4, 0, 0]}>
-                        {channelStats.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={`url(#barGrad-${index})`} />
-                        ))}
-                      </Bar>
-                      <Bar dataKey="최대 TOC" fill="var(--accent-rose)" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                
-                <svg style={{ height: 0, width: 0, position: 'absolute' }}>
-                  <defs>
-                    {channelStats.map((entry, index) => (
-                      <linearGradient id={`barGrad-${index}`} key={index} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent-cyan)" />
-                        <stop offset="100%" stopColor="var(--accent-purple)" />
-                      </linearGradient>
-                    ))}
-                  </defs>
-                </svg>
               </div>
             </div>
           </section>
@@ -700,35 +467,8 @@ function App() {
               <div>
                 <h3 className="chart-title">측정 이력 상세 데이터</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  장비: <strong>{selectedDevice === 'All' ? '전체 통합' : selectedDevice}</strong> | 
                   조회 일치 데이터 총 {filteredData.length}건
                 </p>
-              </div>
-              <div className="header-controls">
-                {/* 검색 필드 */}
-                <input
-                  type="text"
-                  placeholder="시간, 기기ID, 채널, 비고 검색..."
-                  className="custom-select"
-                  style={{ width: '250px', cursor: 'text' }}
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                />
-                
-                {/* 정렬 셀렉터 */}
-                <select
-                  className="custom-select"
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value)}
-                >
-                  <option value="desc">최신 순 정렬</option>
-                  <option value="asc">과거 순 정렬</option>
-                </select>
-
-                {/* CSV 내보내기 */}
-                <button className="sim-btn" style={{ padding: '10px 18px', boxShadow: 'none' }} onClick={downloadCSV}>
-                  CSV 리포트 내보내기 📥
-                </button>
               </div>
             </div>
 
@@ -740,7 +480,7 @@ function App() {
                     <th>장비 ID (Device ID)</th>
                     <th>채널</th>
                     <th>채널 이름</th>
-                    <th>TOC 농도 (ppm)</th>
+                    <th>TOC 농도</th>
                     <th>희석 배수</th>
                     <th>측정 신호 (MSIG)</th>
                     <th>기기 가동 비고 (Add Note)</th>
@@ -760,7 +500,7 @@ function App() {
                         <td style={{ color: 'var(--accent-cyan)', fontWeight: 600, fontFamily: 'monospace' }}>{row.Device_ID}</td>
                         <td>{row.Channel}</td>
                         <td style={{ fontWeight: 500 }}>{row.Channel_Name}</td>
-                        <td>{getTOCBadge(row.TOC_Conc)}</td>
+                        <td style={{ fontWeight: 600 }}>{row.TOC_Conc} ppm</td>
                         <td>{row.DilutionFactor}x</td>
                         <td style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>{row.MSIG}</td>
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.Add_note}>
