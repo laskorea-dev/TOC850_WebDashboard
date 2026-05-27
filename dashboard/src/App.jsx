@@ -23,6 +23,7 @@ import {
 // B2B 멀티테넌시 지원: Vercel 환경 변수(Environment Variables)에서 우선 조회하며, 없을 경우 현재 기본값으로 자동 폴백합니다.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://abfjmqnurtjfbflquqsp.supabase.co/rest/v1/"; 
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "YOUR_SUPABASE_KEY_HERE"; 
+const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
 
 // 채널명 깨짐 보정 및 한글 맵핑 테이블
 const CHANNEL_NAME_MAP = {
@@ -98,8 +99,8 @@ function App() {
       if (SUPABASE_URL && SUPABASE_KEY) {
         const base_url = SUPABASE_URL.replace(/\/$/, "");
         const fetchUrl = base_url.includes("/rest/v1") 
-          ? `${base_url}/measure_logs?select=*&order=Date_Time.asc`
-          : `${base_url}/rest/v1/measure_logs?select=*&order=Date_Time.asc`;
+          ? `${base_url}/${SUPABASE_TABLE}?select=*&order=Date_Time.asc`
+          : `${base_url}/rest/v1/${SUPABASE_TABLE}?select=*&order=Date_Time.asc`;
           
         const response = await fetch(fetchUrl, {
           headers: {
