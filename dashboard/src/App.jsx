@@ -12,10 +12,10 @@ import {
 } from 'recharts';
 
 // =========================================================================
-// Supabase 연결 설정
+// Supabase 연결 설정 — Vercel 환경변수에서 로드 (소스코드에 키 노출 금지)
 // =========================================================================
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://abfjmqnurtjfbflquqsp.supabase.co/rest/v1/";
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiZmptcW51cnRqZmJmbHF1cXNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTg3MjM4OCwiZXhwIjoyMDk1NDQ4Mzg4fQ.ejErBBFUNYlzBBCM0rLi_1mx49tuXQY_XArRuQ5dG0c";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
 const PAGE_SIZE = 1000; // Supabase 기본 limit
 
@@ -94,6 +94,10 @@ function App() {
 
   // 차트 채널 표시/숨김 토글
   const [hiddenChannels, setHiddenChannels] = useState(new Set());
+
+  // Y축 수동 줌
+  const [yMin, setYMin] = useState('');
+  const [yMax, setYMax] = useState('');
 
   // 테이블 필터
   const [tableChannelFilter, setTableChannelFilter] = useState('All');
@@ -300,8 +304,15 @@ function App() {
     return trendChannels.filter(ch => !hiddenChannels.has(ch));
   }, [trendChannels, hiddenChannels]);
 
-  // Y축 도메인: 표시 중인 채널 데이터만 기준으로 오토스케일
+  // Y축 도메인: 수동 입력값 우선, 없으면 표시 중인 채널 기준 오토스케일
   const yDomain = useMemo(() => {
+    // 수동 입력값이 있으면 우선
+    const manualMin = yMin !== '' ? parseFloat(yMin) : null;
+    const manualMax = yMax !== '' ? parseFloat(yMax) : null;
+    if (manualMin !== null && manualMax !== null) {
+      return [manualMin, manualMax];
+    }
+
     if (visibleChannels.length === 0 || chartData.length === 0) return ['auto', 'auto'];
     let min = Infinity;
     let max = -Infinity;
@@ -315,10 +326,14 @@ function App() {
       });
     });
     if (min === Infinity) return ['auto', 'auto'];
-    // 상하 5% 여백
     const padding = (max - min) * 0.05 || 1;
-    return [Math.max(0, Math.floor(min - padding)), Math.ceil(max + padding)];
-  }, [visibleChannels, chartData]);
+    const autoMin = Math.max(0, Math.floor(min - padding));
+    const autoMax = Math.ceil(max + padding);
+    return [
+      manualMin !== null ? manualMin : autoMin,
+      manualMax !== null ? manualMax : autoMax
+    ];
+  }, [visibleChannels, chartData, yMin, yMax]);
 
   // 범례 클릭 핸들러: 채널 표시/숨김 토글
   const handleLegendClick = useCallback((entry) => {
@@ -589,6 +604,33 @@ function App() {
                   onClick={() => setHiddenChannels(new Set())}
                 >
                   전체 표시
+                </button>
+              )}
+
+              {/* Y축 줌 */}
+              <span className="y-zoom-separator">|</span>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Y축:</span>
+              <input
+                type="number"
+                className="custom-select y-zoom-input"
+                placeholder="최소"
+                value={yMin}
+                onChange={(e) => setYMin(e.target.value)}
+              />
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>~</span>
+              <input
+                type="number"
+                className="custom-select y-zoom-input"
+                placeholder="최대"
+                value={yMax}
+                onChange={(e) => setYMax(e.target.value)}
+              />
+              {(yMin !== '' || yMax !== '') && (
+                <button
+                  className="channel-chip reset-chip"
+                  onClick={() => { setYMin(''); setYMax(''); }}
+                >
+                  자동
                 </button>
               )}
             </div>
