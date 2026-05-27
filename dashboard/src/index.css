@@ -538,6 +538,21 @@ body {
   font-size: 10px;
 }
 
+/* Y-axis zoom controls */
+.y-zoom-separator {
+  color: var(--border-hover);
+  font-size: 1rem;
+  margin: 0 4px;
+  user-select: none;
+}
+
+.y-zoom-input {
+  width: 72px !important;
+  padding: 4px 8px !important;
+  font-size: 0.8rem !important;
+  text-align: center;
+}
+
 /* =========================================
    Custom Time Range Picker
    ========================================= */

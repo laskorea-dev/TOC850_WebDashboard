@@ -1,0 +1,13 @@
+{
+    "db_path": "d:\\antigravity\\db_upload_and_dashboard\\toc_db.db",
+    "google_sheet_name": "TOC_Measure_Dashboard",
+    "supabase_table": "measure_logs",
+    "device_id": "DEVICE_01",
+    "interval_seconds": 900,
+    "last_datetime": "",
+    "last_query": "SELECT * FROM Measure_Result_With_Channel_Name ORDER BY Date_Time ASC",
+    "is_paused": false,
+    "is_mock": false,
+    "supabase_url": "YOUR_SUPABASE_URL_HERE",
+    "supabase_key": "YOUR_SUPABASE_KEY_HERE"
+}
