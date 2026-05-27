@@ -837,6 +837,23 @@ function App() {
                   <option value={100}>100건</option>
                 </select>
               </div>
+
+              {/* 날짜 점프 (Jump to Date) 필터 바에 연동 */}
+              <div className="filter-group date-jump-filter-group">
+                <label>날짜 이동 (점프)</label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="date"
+                    className="custom-select date-jump-input"
+                    value={jumpDate}
+                    onChange={(e) => setJumpDate(e.target.value)}
+                    style={{ width: '140px', padding: '7px 12px' }}
+                  />
+                  <button className="sim-btn jump-btn" onClick={handleJumpToDate} style={{ height: '35px', padding: '0 12px !important', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    이동 🚀
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* 데이터 테이블 */}
@@ -881,8 +898,8 @@ function App() {
               </table>
             </div>
 
-            {/* 페이징 및 날짜 이동 바 */}
-            <div className="table-pagination-container">
+            {/* 페이징 바 */}
+            <div className="table-pagination-container" style={{ justifyContent: 'center' }}>
               {totalPages > 1 && (
                 <div className="table-pagination">
                   <button
@@ -918,19 +935,6 @@ function App() {
                   </button>
                 </div>
               )}
-
-              {/* 날짜 점프 UI */}
-              <div className="date-jump-section">
-                <input
-                  type="date"
-                  className="custom-select date-jump-input"
-                  value={jumpDate}
-                  onChange={(e) => setJumpDate(e.target.value)}
-                />
-                <button className="sim-btn jump-btn" onClick={handleJumpToDate}>
-                  날짜 이동 🚀
-                </button>
-              </div>
             </div>
           </section>
 
