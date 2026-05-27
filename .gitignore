@@ -1,0 +1,34 @@
+# 🗄️ Database & Config files
+*.db
+last_upload.json
+uploader_config.json
+
+# 🐍 Python cache & Log files
+__pycache__/
+*.pyc
+uploader.log
+
+# 📦 PyInstaller build artifacts & Executables
+build/
+dist/
+*.spec
+*.exe
+
+# 🌐 Node.js (React Dashboard)
+node_modules/
+dashboard/node_modules/
+dashboard/dist/
+dashboard/public/mock_google_sheet.csv
+
+# 🔑 Local environment files (API Keys)
+.env
+.env.local
+.env.*.local
+credentials.json
+
+# 💻 System & IDE files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
