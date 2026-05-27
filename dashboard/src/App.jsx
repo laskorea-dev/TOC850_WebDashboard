@@ -345,27 +345,6 @@ function App() {
     return `${first} ~ ${last}`;
   }, [trendFilteredData]);
 
-  // CSV 다운로드
-  const downloadCSV = useCallback(() => {
-    if (tableFilteredData.length === 0) return;
-    const headers = ['Date_Time','Device_ID','Channel','Channel_Name','TOC_Conc','DilutionFactor','MSIG','SLOP','ICPT','FACT','OFST','Add_note'];
-    const rows = [headers.join(',')];
-    tableFilteredData.forEach(r => {
-      rows.push([
-        r.Date_Time, r.Device_ID, r.Channel, `"${r.Channel_Name}"`,
-        r.TOC_Conc, r.DilutionFactor, r.MSIG, r.SLOP, r.ICPT, r.FACT, r.OFST,
-        `"${(r.Add_note || '').replace(/"/g, '""')}"`
-      ].join(','));
-    });
-    const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `TOC_Data_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [tableFilteredData]);
-
   // =========================================================================
   // 테이블용 필터링 + 정렬 (최근 데이터 먼저)
   // =========================================================================
@@ -397,6 +376,27 @@ function App() {
       return parseDate(b.Date_Time) - parseDate(a.Date_Time);
     });
   }, [data, tableChannelFilter, tableTocMin, tableTocMax, searchQuery]);
+
+  // CSV 다운로드
+  const downloadCSV = useCallback(() => {
+    if (tableFilteredData.length === 0) return;
+    const headers = ['Date_Time','Device_ID','Channel','Channel_Name','TOC_Conc','DilutionFactor','MSIG','SLOP','ICPT','FACT','OFST','Add_note'];
+    const rows = [headers.join(',')];
+    tableFilteredData.forEach(r => {
+      rows.push([
+        r.Date_Time, r.Device_ID, r.Channel, `"${r.Channel_Name}"`,
+        r.TOC_Conc, r.DilutionFactor, r.MSIG, r.SLOP, r.ICPT, r.FACT, r.OFST,
+        `"${(r.Add_note || '').replace(/"/g, '""')}"`
+      ].join(','));
+    });
+    const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TOC_Data_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [tableFilteredData]);
 
   // 테이블 페이징
   const totalPages = Math.ceil(tableFilteredData.length / itemsPerPage);
