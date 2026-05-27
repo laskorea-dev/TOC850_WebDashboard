@@ -21,8 +21,8 @@ import {
 // 변수가 비어있을 때는 로컬 시뮬레이션 CSV 모드로 안전하게 작동합니다.
 // =========================================================================
 // B2B 멀티테넌시 지원: Vercel 환경 변수(Environment Variables)에서 우선 조회하며, 없을 경우 현재 기본값으로 자동 폴백합니다.
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://abfjmqnurtjfbflquqsp.supabase.co/rest/v1/"; 
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiZmptcW51cnRqZmJmbHF1cXNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTg3MjM4OCwiZXhwIjoyMDk1NDQ4Mzg4fQ.ejErBBFUNYlzBBCM0rLi_1mx49tuXQY_XArRuQ5dG0c"; 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://abfjmqnurtjfbflquqsp.supabase.co/rest/v1/";
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiZmptcW51cnRqZmJmbHF1cXNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTg3MjM4OCwiZXhwIjoyMDk1NDQ4Mzg4fQ.ejErBBFUNYlzBBCM0rLi_1mx49tuXQY_XArRuQ5dG0c";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
 
 // 채널명 깨짐 보정 및 한글 맵핑 테이블
@@ -35,6 +35,9 @@ const CHANNEL_NAME_MAP = {
 
 // 차트 선 색상 매핑
 const LINE_COLORS = {
+  '방류수': '#ff9f43',
+  '유입수': '#00f2fe',
+  '고농도': '#a55eea',
   '방류수 (Effluent)': '#ff9f43',
   '유입수 (Influent)': '#00f2fe',
   '1차처리 (Primary)': '#a55eea',
@@ -48,9 +51,13 @@ const normalizeData = (items) => {
   return items.map(item => {
     const tocVal = parseFloat(item.TOC_Conc);
     const channelNum = parseInt(item.Channel);
-    
-    // 항상 CHANNEL_NAME_MAP을 우선 사용하여 깨진 채널명 원천 차단
-    const resolvedChannelName = CHANNEL_NAME_MAP[channelNum] || item.Channel_Name || `채널 ${channelNum}`;
+
+    // 디비에서 가져온 채널 이름이 깨끗한 경우(방류수, 유입수, 고농도 등) 우선 사용하여 범례 이름을 완벽 동기화하고,
+    // 비어있거나 특수 문자 깨짐(Լ)이 포함된 경우에만 CHANNEL_NAME_MAP으로 자동 폴백 처리합니다.
+    let resolvedChannelName = item.Channel_Name;
+    if (!resolvedChannelName || resolvedChannelName === '' || resolvedChannelName.includes('Լ')) {
+      resolvedChannelName = CHANNEL_NAME_MAP[channelNum] || `채널 ${channelNum}`;
+    }
 
     return {
       Date_Time: item.Date_Time,
@@ -75,6 +82,11 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
+  // 보안 접속 패스코드 상태 (눈가리기 식 로그인)
+  const [passcode, setPasscode] = useState('');
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [loginError, setLoginError] = useState(false);
+
   // UI 필터 및 검색 상태
   const [selectedDevice, setSelectedDevice] = useState('All');
   const [selectedAttr, setSelectedAttr] = useState('TOC_Conc'); // TOC_Conc or MSIG (꺾은선 물리속성 토글)
@@ -90,25 +102,25 @@ function App() {
     setError(null);
     try {
       let fetchedData = [];
-      
+
       // Supabase 연결 설정이 되어 있는 경우, 클라우드 DB에서 실시간 직접 fetch!
       if (SUPABASE_URL && SUPABASE_KEY) {
         const base_url = SUPABASE_URL.replace(/\/$/, "");
-        const fetchUrl = base_url.includes("/rest/v1") 
+        const fetchUrl = base_url.includes("/rest/v1")
           ? `${base_url}/${SUPABASE_TABLE}?select=*&order=Date_Time.asc`
           : `${base_url}/rest/v1/${SUPABASE_TABLE}?select=*&order=Date_Time.asc`;
-          
+
         const response = await fetch(fetchUrl, {
           headers: {
             "apikey": SUPABASE_KEY,
             "Authorization": `Bearer ${SUPABASE_KEY}`
           }
         });
-        
+
         if (!response.ok) {
           throw new Error(`Supabase fetch failed: ${response.status} ${response.statusText}`);
         }
-        
+
         const rawJson = await response.json();
         fetchedData = normalizeData(rawJson);
       } else {
@@ -147,7 +159,7 @@ function App() {
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       const values = parseCSVLine(lines[i]);
-      
+
       if (values.length >= headers.length) {
         const item = {};
         headers.forEach((header, index) => {
@@ -163,7 +175,7 @@ function App() {
     const result = [];
     let insideQuote = false;
     let entry = '';
-    
+
     for (let i = 0; i < line.length; i++) {
       const char = line[i];
       if (char === '"') {
@@ -182,10 +194,10 @@ function App() {
   // CSV 다운로드 기능
   const downloadCSV = () => {
     if (data.length === 0) return;
-    
+
     const headers = ['Date_Time', 'Device_ID', 'Channel', 'Channel_Name', 'TOC_Conc', 'DilutionFactor', 'MSIG', 'Add_note'];
     const csvRows = [headers.join(',')];
-    
+
     filteredData.forEach(row => {
       const values = [
         row.Date_Time,
@@ -199,12 +211,12 @@ function App() {
       ];
       csvRows.push(values.join(','));
     });
-    
+
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `TOC_B2B_Report_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `TOC_B2B_Report_${new Date().toISOString().slice(0, 10)}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -217,7 +229,7 @@ function App() {
     if (selectedDevice !== 'All' && item.Device_ID !== selectedDevice) {
       return false;
     }
-    
+
     // 2. 검색 텍스트 필터
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -227,21 +239,21 @@ function App() {
       const matchDev = item.Device_ID.toLowerCase().includes(query);
       if (!matchDate && !matchNote && !matchChName && !matchDev) return false;
     }
-    
+
     // 3. 시간 범위 필터
     if (timeRange !== 'All') {
       const itemDate = new Date(item.Date_Time.replace(/-/g, '/'));
       const now = new Date();
-      
+
       const maxDate = data.length > 0 ? new Date(data[data.length - 1].Date_Time.replace(/-/g, '/')) : now;
       const diffTime = Math.abs(maxDate - itemDate);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
+
       if (timeRange === '24h' && diffDays > 1) return false;
       if (timeRange === '3d' && diffDays > 3) return false;
       if (timeRange === '7d' && diffDays > 7) return false;
     }
-    
+
     return true;
   }).sort((a, b) => {
     const dateA = new Date(a.Date_Time.replace(/-/g, '/'));
@@ -252,17 +264,17 @@ function App() {
   // 요약 KPI 연산
   const getStats = () => {
     if (filteredData.length === 0) return { latest: 0, max: 0, avg: 0, count: 0, status: 'Offline' };
-    
+
     const sortedByTime = [...filteredData].sort((a, b) => new Date(a.Date_Time.replace(/-/g, '/')) - new Date(b.Date_Time.replace(/-/g, '/')));
     const latestItem = sortedByTime[sortedByTime.length - 1];
-    
+
     const latest = latestItem.TOC_Conc;
     const count = filteredData.length;
-    
+
     const values = filteredData.map(item => item.TOC_Conc);
     const max = Math.max(...values);
     const avg = parseFloat((values.reduce((sum, val) => sum + val, 0) / count).toFixed(2));
-    
+
     const latestTime = new Date(latestItem.Date_Time.replace(/-/g, '/'));
     const maxTime = data.length > 0 ? new Date(data[data.length - 1].Date_Time.replace(/-/g, '/')) : new Date();
     const timeDiffMinutes = Math.abs(maxTime - latestTime) / (1000 * 60);
@@ -303,12 +315,12 @@ function App() {
   // =========================================================================
   const getMultiSeriesChartData = () => {
     if (filteredData.length === 0) return [];
-    
+
     const timeSlots = {};
-    
+
     // 시간 오름차순 정렬
     const sorted = [...filteredData].sort((a, b) => new Date(a.Date_Time.replace(/-/g, '/')) - new Date(b.Date_Time.replace(/-/g, '/')));
-    
+
     sorted.forEach(item => {
       // YYYY-MM-DD HH:MM:SS -> 분 단위를 30분 단위 버킷으로 묶어 엇갈린 측정 시간 축을 결합!
       // 예: 13:33:57 -> 13:30 / 13:48:57 -> 13:30 또는 13:45로 타이트하게 바인딩
@@ -316,17 +328,17 @@ function App() {
       const timePart = item.Date_Time.slice(11, 16);
       const hours = parseInt(timePart.slice(0, 2));
       const minutes = parseInt(timePart.slice(3, 5));
-      
+
       const bucketMinutes = minutes < 30 ? '00' : '30';
       const timeBucket = `${datePart} ${String(hours).padStart(2, '0')}:${bucketMinutes}`;
-      
+
       if (!timeSlots[timeBucket]) {
         timeSlots[timeBucket] = {
           TimeBucket: timeBucket,
           ShortTime: timeBucket.slice(5),
         };
       }
-      
+
       const attributeValue = selectedAttr === 'TOC_Conc' ? item.TOC_Conc : item.MSIG;
       timeSlots[timeBucket][item.Channel_Name] = attributeValue;
     });
@@ -352,13 +364,64 @@ function App() {
     currentPage * itemsPerPage
   );
 
+  if (!isUnlocked) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--bg-primary)',
+        fontFamily: 'var(--font-body)',
+        color: 'var(--text-main)',
+        padding: '20px'
+      }}>
+        <div className="glass-card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>LAS TOC-850 보안 접속</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>대시보드 열람을 위해 보안 코드를 입력해 주세요.</p>
+          <input
+            type="password"
+            placeholder="보안 코드 입력..."
+            className="custom-select"
+            style={{ width: '100%', textAlign: 'center', letterSpacing: '8px', fontSize: '1.2rem', cursor: 'text' }}
+            value={passcode}
+            onChange={(e) => { setPasscode(e.target.value); setLoginError(false); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (passcode === '850') {
+                  setIsUnlocked(true);
+                } else {
+                  setLoginError(true);
+                }
+              }
+            }}
+          />
+          {loginError && <p style={{ color: 'var(--accent-rose)', fontSize: '0.85rem' }}>올바르지 않은 코드입니다. 다시 시도해 주세요.</p>}
+          <button
+            className="sim-btn"
+            style={{ width: '100%' }}
+            onClick={() => {
+              if (passcode === '850') {
+                setIsUnlocked(true);
+              } else {
+                setLoginError(true);
+              }
+            }}
+          >
+            대시보드 접속 🔑
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-container">
       {/* HEADER SECTION */}
       <header className="dashboard-header">
         <div className="header-title-section">
-          <h1>TOC 계측 B2B 모니터링 시스템</h1>
-          <p>Supabase 서버리스 PostgreSQL 연동 실시간 다중 채널 관제 판넬</p>
+          <h1>LAS TOC-850 온라인 계측 모니터링 대시보드</h1>
+          <p>LAS KOREA 제공</p>
         </div>
         <div className="header-controls">
           <button className="filter-btn active" onClick={loadData}>새로고침 🔄</button>
@@ -387,19 +450,19 @@ function App() {
                 <div>
                   <h3 className="chart-title">TOC & Signal Multi-Series Trend</h3>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    시간 흐름별 **유입 vs 방류 vs 1차처리** 동시 오버랩 꺾은선 그래프
+
                   </p>
                 </div>
-                
+
                 <div className="header-controls" style={{ gap: '8px', flexWrap: 'wrap' }}>
                   <div className="filter-button-group">
-                    <button 
+                    <button
                       className={`filter-btn ${selectedAttr === 'TOC_Conc' ? 'active' : ''}`}
                       onClick={() => setSelectedAttr('TOC_Conc')}
                     >
                       TOC 농도 (ppm)
                     </button>
-                    <button 
+                    <button
                       className={`filter-btn ${selectedAttr === 'MSIG' ? 'active' : ''}`}
                       onClick={() => setSelectedAttr('MSIG')}
                     >
@@ -407,10 +470,10 @@ function App() {
                     </button>
                   </div>
 
-                  <select 
-                    className="custom-select" 
+                  <select
+                    className="custom-select"
                     style={{ padding: '6px 12px', fontSize: '0.82rem' }}
-                    value={timeRange} 
+                    value={timeRange}
                     onChange={(e) => { setTimeRange(e.target.value); setCurrentPage(1); }}
                   >
                     <option value="24h">최근 24시간</option>
@@ -420,7 +483,7 @@ function App() {
                   </select>
                 </div>
               </div>
-              
+
               <div style={{ width: '100%', height: 400 }}>
                 {chartData.length === 0 ? (
                   <div className="empty-placeholder" style={{ padding: '40px 0' }}>
