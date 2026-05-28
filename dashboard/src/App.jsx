@@ -76,10 +76,27 @@ const toDatetimeLocal = (date) => {
 };
 
 function App() {
+  // URL 파라미터 ?site= 에서 사이트 아이디(테이블명) 파싱, 없을 경우 폴백
+  const siteId = useMemo(() => {
+    if (typeof window === 'undefined') return SUPABASE_TABLE;
+    const searchParams = new URLSearchParams(window.location.search);
+    return searchParams.get('site') || SUPABASE_TABLE;
+  }, []);
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState('');
   const [error, setError] = useState(null);
+
+  // site_config 설정 데이터 상태
+  const [siteConfig, setSiteConfig] = useState({
+    site_id: siteId,
+    passcode: '850', // 폴백용 기본 비밀번호
+    site_name: 'LAS TOC-850 온라인 계측 모니터링 대시보드', // 폴백용 기본 사이트명
+    is_active: true,
+    toc_alert_high: null,
+    loading: true
+  });
 
   // 보안 접속
   const [passcode, setPasscode] = useState('');
@@ -117,6 +134,62 @@ function App() {
   const [csvCustomEnd, setCsvCustomEnd] = useState('');
 
   // =========================================================================
+  // site_config 로드 함수 추가
+  // =========================================================================
+  const loadSiteConfig = useCallback(async () => {
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const configEndpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/site_config`
+        : `${baseUrl}/rest/v1/site_config`;
+
+      const response = await fetch(`${configEndpoint}?site_id=eq.${siteId}`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        }
+      });
+
+      if (response.ok) {
+        const confList = await response.ok ? await response.json() : [];
+        if (Array.isArray(confList) && confList.length > 0) {
+          const conf = confList[0];
+          let alertObj = null;
+          if (conf.toc_alert_high) {
+            try {
+              alertObj = typeof conf.toc_alert_high === 'string'
+                ? JSON.parse(conf.toc_alert_high)
+                : conf.toc_alert_high;
+            } catch (e) {
+              console.error("임계값 JSON 파싱 에러:", e);
+            }
+          }
+          setSiteConfig({
+            site_id: conf.site_id,
+            passcode: conf.passcode || '850',
+            site_name: conf.site_name || 'LAS TOC-850 온라인 계측 모니터링 대시보드',
+            is_active: conf.is_active !== false,
+            toc_alert_high: alertObj,
+            loading: false
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("site_config 로드 실패, 기본설정 폴백 사용:", err);
+    }
+
+    // 로딩 완료 처리 (폴백 값 유지)
+    setSiteConfig(prev => ({
+      ...prev,
+      loading: false
+    }));
+  }, [siteId]);
+
+  // =========================================================================
   // Supabase 페이지네이션 Fetch — 전체 레코드 가져오기
   // =========================================================================
   const loadData = useCallback(async () => {
@@ -130,8 +203,8 @@ function App() {
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${SUPABASE_TABLE}`
-        : `${baseUrl}/rest/v1/${SUPABASE_TABLE}`;
+        ? `${baseUrl}/${siteId}`
+        : `${baseUrl}/rest/v1/${siteId}`;
 
       let allData = [];
       let from = 0;
@@ -190,13 +263,24 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [customStart]);
+  }, [siteId, customStart]);
+
+  // 페이지 타이틀 동적 업데이트
+  useEffect(() => {
+    if (siteConfig && siteConfig.site_name) {
+      document.title = siteConfig.site_name;
+    }
+  }, [siteConfig]);
 
   useEffect(() => {
+    loadSiteConfig();
     loadData();
-    const interval = setInterval(loadData, 5 * 60 * 1000);
+    const interval = setInterval(() => {
+      loadSiteConfig();
+      loadData();
+    }, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadSiteConfig, loadData]);
 
   // =========================================================================
   // 전체 데이터에서 사용 가능한 채널 목록
@@ -420,6 +504,13 @@ function App() {
     }
   }, [jumpDate, tableFilteredData, itemsPerPage]);
 
+  // 채널별 TOC 알림 경계값 조회 유틸
+  const getAlertThreshold = useCallback((channel) => {
+    if (!siteConfig || !siteConfig.toc_alert_high) return null;
+    const threshold = parseFloat(siteConfig.toc_alert_high[channel] || siteConfig.toc_alert_high[String(channel)]);
+    return isNaN(threshold) ? null : threshold;
+  }, [siteConfig]);
+
   // CSV 다운로드 전용 필터링 및 다운로드 구현
   const handleCSVDownload = useCallback(() => {
     if (data.length === 0) return;
@@ -489,8 +580,60 @@ function App() {
   }, [tableChannelFilter, tableTocMin, tableTocMax, searchQuery, itemsPerPage]);
 
   // =========================================================================
-  // 보안 접속 화면
+  // 보안 접속 화면 및 로딩/활성화 상태 체크
   // =========================================================================
+  if (siteConfig.loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--bg-primary)',
+        color: 'var(--text-main)',
+        fontFamily: 'var(--font-body)'
+      }}>
+        <div style={{ fontSize: '1.1rem', marginBottom: '15px', color: 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>설정 정보 분석 중...</div>
+        <div className="loader" style={{
+          border: '3px solid rgba(255,255,255,0.05)',
+          borderTop: '3px solid var(--accent-cyan)',
+          borderRadius: '50%',
+          width: '32px',
+          height: '32px',
+          animation: 'spin 1s linear infinite'
+        }}></div>
+      </div>
+    );
+  }
+
+  // 서비스 비활성화 상태인 경우
+  if (!siteConfig.is_active) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--bg-primary)',
+        fontFamily: 'var(--font-body)',
+        color: 'var(--text-main)',
+        padding: '20px'
+      }}>
+        <div className="glass-card" style={{ maxWidth: '450px', width: '100%', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '20px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <div style={{ fontSize: '3rem', color: 'var(--accent-rose)' }}>⚠️</div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--accent-rose)' }}>서비스 비활성화</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: '1.6' }}>
+            본 모니터링 대시보드(<strong>{siteConfig.site_name}</strong>)는 관리자에 의해 일시적으로 서비스가 비활성화되었습니다.
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+            기술 지원 및 재활성화 관련 문의는 본사 담당자에게 전달해 주세요.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isUnlocked) {
     return (
       <div style={{
@@ -504,7 +647,7 @@ function App() {
         padding: '20px'
       }}>
         <div className="glass-card" style={{ maxWidth: '400px', width: '100%', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>LAS TOC-850 보안 접속</h2>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>{siteConfig.site_name} 보안 접속</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>대시보드 열람을 위해 보안 코드를 입력해 주세요.</p>
           <input
             type="password"
@@ -515,7 +658,7 @@ function App() {
             onChange={(e) => { setPasscode(e.target.value); setLoginError(false); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                if (passcode === '850') setIsUnlocked(true);
+                if (passcode === siteConfig.passcode) setIsUnlocked(true);
                 else setLoginError(true);
               }
             }}
@@ -525,7 +668,7 @@ function App() {
             className="sim-btn"
             style={{ width: '100%' }}
             onClick={() => {
-              if (passcode === '850') setIsUnlocked(true);
+              if (passcode === siteConfig.passcode) setIsUnlocked(true);
               else setLoginError(true);
             }}
           >
@@ -544,7 +687,7 @@ function App() {
       {/* HEADER */}
       <header className="dashboard-header">
         <div className="header-title-section">
-          <h1>LAS TOC-850 온라인 계측 모니터링 대시보드</h1>
+          <h1>{siteConfig.site_name}</h1>
           <p>LAS KOREA 제공 · 총 {data.length.toLocaleString()}건 수집</p>
         </div>
         <div className="header-controls">
@@ -878,18 +1021,27 @@ function App() {
                       </td>
                     </tr>
                   ) : (
-                    paginatedData.map((row, index) => (
-                      <tr key={index}>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
-                        <td style={{ fontWeight: 500 }}>{row.Channel_Name}</td>
-                        <td style={{ fontWeight: 600 }}>{row.TOC_Conc}</td>
-                        <td>{row.DilutionFactor}x</td>
-                        <td style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>{row.MSIG}</td>
-                        <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.Add_note}>
-                          {row.Add_note}
-                        </td>
-                      </tr>
-                    ))
+                    paginatedData.map((row, index) => {
+                      const threshold = getAlertThreshold(row.Channel);
+                      const isAlert = threshold !== null && row.TOC_Conc > threshold;
+                      return (
+                        <tr key={index} className={isAlert ? 'row-alert' : ''}>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
+                          <td style={{ fontWeight: 500 }}>{row.Channel_Name}</td>
+                          <td style={{ fontWeight: 600, color: isAlert ? 'var(--accent-rose)' : 'inherit' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              {isAlert && <span className="alert-dot" title={`경고 기준치 (${threshold} ppm) 초과`} />}
+                              <span>{row.TOC_Conc}</span>
+                            </div>
+                          </td>
+                          <td>{row.DilutionFactor}x</td>
+                          <td style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>{row.MSIG}</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.Add_note}>
+                            {row.Add_note}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
