@@ -851,3 +851,49 @@ body {
     flex: 1;
   }
 }
+
+/* =========================================
+   경고 상태 & 로더 시각화 프리미엄 스타일
+   ========================================= */
+.alert-dot {
+  width: 7px;
+  height: 7px;
+  background-color: var(--accent-rose);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--accent-rose);
+  display: inline-block;
+  animation: pulse-red 1.8s infinite ease-in-out;
+}
+
+@keyframes pulse-red {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.row-alert {
+  background: rgba(239, 68, 68, 0.04) !important;
+  border-left: 2px solid var(--accent-rose);
+}
+
+.row-alert:hover {
+  background: rgba(239, 68, 68, 0.08) !important;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loader {
+  animation: spin 1s linear infinite;
+}
