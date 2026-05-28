@@ -82,6 +82,40 @@ const toDatetimeLocal = (date) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
+// PostgREST용 날짜 범위 쿼리 파라미터 빌더
+const getDateFilterParams = (range, start, end) => {
+  const pad = (n) => String(n).padStart(2, '0');
+  const formatDbDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+  if (range === '24h') {
+    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    return `&Date_Time=gte.${encodeURIComponent(formatDbDate(d))}`;
+  }
+  if (range === '7d') {
+    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return `&Date_Time=gte.${encodeURIComponent(formatDbDate(d))}`;
+  }
+  if (range === '30d') {
+    const d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    return `&Date_Time=gte.${encodeURIComponent(formatDbDate(d))}`;
+  }
+  if (range === 'custom') {
+    let filter = '';
+    if (start) {
+      const dStart = new Date(start);
+      const startStr = `${dStart.getFullYear()}-${pad(dStart.getMonth() + 1)}-${pad(dStart.getDate())} ${pad(dStart.getHours())}:${pad(dStart.getMinutes())}:00`;
+      filter += `&Date_Time=gte.${encodeURIComponent(startStr)}`;
+    }
+    if (end) {
+      const dEnd = new Date(end);
+      const endStr = `${dEnd.getFullYear()}-${pad(dEnd.getMonth() + 1)}-${pad(dEnd.getDate())} ${pad(dEnd.getHours())}:${pad(dEnd.getMinutes())}:59`;
+      filter += `&Date_Time=lte.${encodeURIComponent(endStr)}`;
+    }
+    return filter;
+  }
+  return ''; // 'all' 또는 'All'
+};
+
 function App() {
   // URL 파라미터 ?site= 에서 사이트 아이디(테이블명) 파싱, 없을 경우 폴백
   const siteId = useMemo(() => {
@@ -113,8 +147,17 @@ function App() {
   // 트렌드 차트 필터
   const [selectedAttr, setSelectedAttr] = useState('TOC_Conc');
   const [timeRange, setTimeRange] = useState('7d');
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
+  const [customStart, setCustomStart] = useState(() => {
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${oneWeekAgo.getFullYear()}-${pad(oneWeekAgo.getMonth() + 1)}-${pad(oneWeekAgo.getDate())}T00:00`;
+  });
+  const [customEnd, setCustomEnd] = useState(() => {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`;
+  });
 
   // 차트 채널 표시/숨김 토글
   const [hiddenChannels, setHiddenChannels] = useState(new Set());
@@ -197,7 +240,7 @@ function App() {
   }, [siteId]);
 
   // =========================================================================
-  // Supabase 페이지네이션 Fetch — 전체 레코드 가져오기
+  // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
   // =========================================================================
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -213,6 +256,9 @@ function App() {
         ? `${baseUrl}/${siteId}`
         : `${baseUrl}/rest/v1/${siteId}`;
 
+      // 서버 사이드 날짜 쿼리 파라미터 빌드
+      const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
+
       let allData = [];
       let from = 0;
       let hasMore = true;
@@ -221,8 +267,9 @@ function App() {
         const to = from + PAGE_SIZE - 1;
         setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
 
+        // PostgREST 날짜 필터(filterParams) 주입
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.asc`,
+          `${endpoint}?select=*&order=Date_Time.asc${filterParams}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
@@ -256,21 +303,13 @@ function App() {
       setLoadProgress(`총 ${allData.length.toLocaleString()}건 로드 완료`);
       const normalized = normalizeData(allData);
       setData(normalized);
-
-      // 데이터 로드 후 커스텀 시간 범위 기본값 설정
-      if (normalized.length > 0 && !customStart) {
-        const first = parseDate(normalized[0].Date_Time);
-        const last = parseDate(normalized[normalized.length - 1].Date_Time);
-        setCustomStart(toDatetimeLocal(first));
-        setCustomEnd(toDatetimeLocal(last));
-      }
     } catch (err) {
       console.error(err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [siteId, customStart]);
+  }, [siteId, timeRange, customStart, customEnd]);
 
   // 페이지 타이틀 동적 업데이트
   useEffect(() => {
@@ -279,15 +318,19 @@ function App() {
     }
   }, [siteConfig]);
 
+  // 사이트 설정 정보 주기적 로드
   useEffect(() => {
     loadSiteConfig();
-    loadData();
-    const interval = setInterval(() => {
-      loadSiteConfig();
-      loadData();
-    }, 5 * 60 * 1000);
+    const interval = setInterval(loadSiteConfig, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [loadSiteConfig, loadData]);
+  }, [loadSiteConfig]);
+
+  // 조회 필터 변경 또는 시간 경과 시 데이터 로드
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loadData]);
 
   // =========================================================================
   // 전체 데이터에서 사용 가능한 채널 목록
@@ -519,60 +562,94 @@ function App() {
   }, [siteConfig]);
 
   // CSV 다운로드 전용 필터링 및 다운로드 구현
-  const handleCSVDownload = useCallback(() => {
-    if (data.length === 0) return;
+  const handleCSVDownload = useCallback(async () => {
+    setError(null);
+    setLoadProgress('다운로드 데이터 조회 중...');
+    setLoading(true);
 
-    let targetData = [...data]; // 정렬 순서는 원본 순서(시간 오름차순 또는 내림차순) 상관없이 필터링 진행
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
 
-    // CSV 기간별 필터링 진행
-    if (csvRangeType !== 'all') {
-      const lastDate = parseDate(data[data.length - 1].Date_Time);
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const endpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/${siteId}`
+        : `${baseUrl}/rest/v1/${siteId}`;
 
-      targetData = targetData.filter(item => {
-        const itemDate = parseDate(item.Date_Time);
+      // CSV 다운로드용 날짜 필터 파라미터 빌드
+      const filterParams = getDateFilterParams(csvRangeType, csvCustomStart, csvCustomEnd);
 
-        if (csvRangeType === '24h') {
-          return (lastDate - itemDate) <= 24 * 60 * 60 * 1000;
-        } else if (csvRangeType === '7d') {
-          return (lastDate - itemDate) <= 7 * 24 * 60 * 60 * 1000;
-        } else if (csvRangeType === '30d') {
-          return (lastDate - itemDate) <= 30 * 24 * 60 * 60 * 1000;
-        } else if (csvRangeType === 'custom') {
-          const start = csvCustomStart ? new Date(csvCustomStart) : new Date(0);
-          const end = csvCustomEnd ? new Date(csvCustomEnd) : new Date();
-          return itemDate >= start && itemDate <= end;
+      let allData = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const to = from + PAGE_SIZE - 1;
+        setLoadProgress(`다운로드 데이터 ${allData.length.toLocaleString()}건 로딩 중...`);
+
+        const response = await fetch(
+          `${endpoint}?select=*&order=Date_Time.asc${filterParams}`,
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Range': `${from}-${to}`
+            }
+          }
+        );
+
+        if (!response.ok && response.status !== 206) {
+          throw new Error(`CSV 데이터 로드 실패: ${response.status}`);
         }
-        return true;
+
+        const chunk = await response.json();
+        if (!Array.isArray(chunk) || chunk.length === 0) {
+          hasMore = false;
+        } else {
+          allData = allData.concat(chunk);
+          from += PAGE_SIZE;
+          if (chunk.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        }
+      }
+
+      if (allData.length === 0) {
+        alert('선택하신 기간 내에 다운로드할 데이터가 존재하지 않습니다.');
+        return;
+      }
+
+      const targetData = normalizeData(allData);
+      // 최신 데이터를 먼저 보기 위해 내림차순 정렬 후 CSV 내보내기
+      targetData.sort((a, b) => parseDate(b.Date_Time) - parseDate(a.Date_Time));
+
+      const headers = ['Date_Time','Device_ID','Channel','Channel_Name','TOC_Conc','DilutionFactor','MSIG','SLOP','ICPT','FACT','OFST','Add_note'];
+      const rows = [headers.join(',')];
+      targetData.forEach(r => {
+        rows.push([
+          r.Date_Time, r.Device_ID, r.Channel, `"${r.Channel_Name}"`,
+          r.TOC_Conc, r.DilutionFactor, r.MSIG, r.SLOP, r.ICPT, r.FACT, r.OFST,
+          `"${(r.Add_note || '').replace(/"/g, '""')}"`
+        ].join(','));
       });
+
+      const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `TOC_Data_${csvRangeType}_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setIsCsvModalOpen(false); // 모달 닫기
+    } catch (err) {
+      console.error(err);
+      alert(`다운로드 실패: ${err.message}`);
+    } finally {
+      setLoading(false);
+      setLoadProgress('');
     }
-
-    // 최신 데이터를 먼저 보기 위해 내림차순 정렬 후 CSV 내보내기
-    targetData.sort((a, b) => parseDate(b.Date_Time) - parseDate(a.Date_Time));
-
-    if (targetData.length === 0) {
-      alert('선택하신 기간 내에 다운로드할 데이터가 존재하지 않습니다.');
-      return;
-    }
-
-    const headers = ['Date_Time','Device_ID','Channel','Channel_Name','TOC_Conc','DilutionFactor','MSIG','SLOP','ICPT','FACT','OFST','Add_note'];
-    const rows = [headers.join(',')];
-    targetData.forEach(r => {
-      rows.push([
-        r.Date_Time, r.Device_ID, r.Channel, `"${r.Channel_Name}"`,
-        r.TOC_Conc, r.DilutionFactor, r.MSIG, r.SLOP, r.ICPT, r.FACT, r.OFST,
-        `"${(r.Add_note || '').replace(/"/g, '""')}"`
-      ].join(','));
-    });
-
-    const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `TOC_Data_${csvRangeType}_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setIsCsvModalOpen(false); // 모달 닫기
-  }, [data, csvRangeType, csvCustomStart, csvCustomEnd]);
+  }, [siteId, csvRangeType, csvCustomStart, csvCustomEnd]);
 
   // 테이블 페이징
   const totalPages = Math.ceil(tableFilteredData.length / itemsPerPage);
