@@ -117,6 +117,14 @@ const getDateFilterParams = (range, start, end) => {
 };
 
 function App() {
+  // URL 파라미터 ?site= 존재 여부 분석
+  const hasSiteParam = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const searchParams = new URLSearchParams(window.location.search);
+    const siteVal = searchParams.get('site');
+    return siteVal !== null && siteVal.trim() !== '';
+  }, []);
+
   // URL 파라미터 ?site= 에서 사이트 아이디(테이블명) 파싱, 없을 경우 폴백
   const siteId = useMemo(() => {
     if (typeof window === 'undefined') return SUPABASE_TABLE;
@@ -187,6 +195,7 @@ function App() {
   // site_config 로드 함수 추가
   // =========================================================================
   const loadSiteConfig = useCallback(async () => {
+    if (!hasSiteParam) return;
     try {
       if (!SUPABASE_URL || !SUPABASE_KEY) {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
@@ -243,6 +252,7 @@ function App() {
   // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
   // =========================================================================
   const loadData = useCallback(async () => {
+    if (!hasSiteParam) return;
     setLoading(true);
     setError(null);
     setLoadProgress('연결 중...');
@@ -666,6 +676,32 @@ function App() {
   // =========================================================================
   // 보안 접속 화면 및 로딩/활성화 상태 체크
   // =========================================================================
+  if (!hasSiteParam) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--bg-primary)',
+        fontFamily: 'var(--font-body)',
+        color: 'var(--text-main)',
+        padding: '20px'
+      }}>
+        <div className="glass-card" style={{ maxWidth: '450px', width: '100%', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '20px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+          <div style={{ fontSize: '3.2rem', color: 'var(--accent-cyan)' }}>🔒</div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>대시보드 접속 제한</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: '1.6' }}>
+            본 온라인 계측 모니터링 시스템은 개별 발급된 **보안 링크(URL)**를 통해서만 접근 가능합니다.
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+            올바른 전용 지점 파라미터(`?site=지점명`)를 포함해 접속하시거나, 계정 관리자에게 문의 바랍니다.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (siteConfig.loading) {
     return (
       <div style={{
