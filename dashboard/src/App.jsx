@@ -31,6 +31,13 @@ const LINE_COLORS = {
   '기타 채널': '#a0a5b5'
 };
 
+// 비고 란의 중복 채널명 정보 제거 (CH Name = xxx / 뒷내용 형태 삭제)
+const cleanAddNote = (note) => {
+  if (!note) return '';
+  const pattern = /^CH\s*Name\s*=[^/]*\/\s*/i;
+  return note.replace(pattern, '').trim();
+};
+
 // 데이터 표준화 헬퍼
 const normalizeData = (items) => {
   if (!Array.isArray(items)) return [];
@@ -58,7 +65,7 @@ const normalizeData = (items) => {
       FACT: parseFloat(item.FACT) || 0.0,
       OFST: parseFloat(item.OFST) || 0.0,
       MAXR: parseInt(item.MAXR) || 200,
-      Add_note: item.Add_note || ''
+      Add_note: cleanAddNote(item.Add_note || '')
     };
   });
 };
@@ -1005,12 +1012,12 @@ function App() {
               <table className="data-table compact">
                 <thead>
                   <tr>
-                    <th>측정 일시</th>
-                    <th>채널</th>
-                    <th>TOC (ppm)</th>
-                    <th>희석</th>
-                    <th>MSIG</th>
-                    <th>비고</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>측정 일시</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>채널</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>TOC (ppm)</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>희석</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>MSIG</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>비고</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1027,15 +1034,15 @@ function App() {
                       return (
                         <tr key={index} className={isAlert ? 'row-alert' : ''}>
                           <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
-                          <td style={{ fontWeight: 500 }}>{row.Channel_Name}</td>
-                          <td style={{ fontWeight: 600, color: isAlert ? 'var(--accent-rose)' : 'inherit' }}>
+                          <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{row.Channel_Name}</td>
+                          <td style={{ fontWeight: 600, color: isAlert ? 'var(--accent-rose)' : 'inherit', whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                               {isAlert && <span className="alert-dot" title={`경고 기준치 (${threshold} ppm) 초과`} />}
                               <span>{row.TOC_Conc}</span>
                             </div>
                           </td>
-                          <td>{row.DilutionFactor}x</td>
-                          <td style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>{row.MSIG}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>{row.DilutionFactor}x</td>
+                          <td style={{ color: 'var(--accent-purple)', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.MSIG}</td>
                           <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.Add_note}>
                             {row.Add_note}
                           </td>
