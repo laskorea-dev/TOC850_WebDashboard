@@ -765,7 +765,8 @@ function App() {
               <div>
                 <h3 className="chart-title">측정 이력 상세 데이터</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  총 {data.length.toLocaleString()}건 중 {tableFilteredData.length.toLocaleString()}건 조회
+                  장비: <span style={{ color: 'var(--accent-cyan)', fontWeight: 600, fontFamily: 'monospace' }}>{data.length > 0 ? data[0].Device_ID : '—'}</span>
+                  {' · '}총 {data.length.toLocaleString()}건 중 {tableFilteredData.length.toLocaleString()}건 조회
                 </p>
               </div>
               <button className="filter-btn active" onClick={() => setIsCsvModalOpen(true)} disabled={data.length === 0}>
@@ -858,15 +859,13 @@ function App() {
 
             {/* 데이터 테이블 */}
             <div className="table-wrapper">
-              <table className="data-table">
+              <table className="data-table compact">
                 <thead>
                   <tr>
                     <th>측정 일시</th>
-                    <th>장비 ID</th>
                     <th>채널</th>
-                    <th>채널 이름</th>
-                    <th>TOC 농도</th>
-                    <th>희석 배수</th>
+                    <th>TOC (ppm)</th>
+                    <th>희석</th>
                     <th>MSIG</th>
                     <th>비고</th>
                   </tr>
@@ -874,7 +873,7 @@ function App() {
                 <tbody>
                   {paginatedData.length === 0 ? (
                     <tr>
-                      <td colSpan="8" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
                         필터 조건에 부합하는 데이터가 없습니다.
                       </td>
                     </tr>
@@ -882,10 +881,8 @@ function App() {
                     paginatedData.map((row, index) => (
                       <tr key={index}>
                         <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
-                        <td style={{ color: 'var(--accent-cyan)', fontWeight: 600, fontFamily: 'monospace' }}>{row.Device_ID}</td>
-                        <td>{row.Channel}</td>
                         <td style={{ fontWeight: 500 }}>{row.Channel_Name}</td>
-                        <td style={{ fontWeight: 600 }}>{row.TOC_Conc} ppm</td>
+                        <td style={{ fontWeight: 600 }}>{row.TOC_Conc}</td>
                         <td>{row.DilutionFactor}x</td>
                         <td style={{ color: 'var(--accent-purple)', fontWeight: 600 }}>{row.MSIG}</td>
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.Add_note}>
