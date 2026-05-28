@@ -143,8 +143,8 @@ function App() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/site_config`
-        : `${baseUrl}/rest/v1/site_config`;
+        ? `${baseUrl}/850_dashboard_site_config`
+        : `${baseUrl}/rest/v1/850_dashboard_site_config`;
 
       const response = await fetch(`${configEndpoint}?site_id=eq.${siteId}`, {
         headers: {
