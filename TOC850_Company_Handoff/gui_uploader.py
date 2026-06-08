@@ -30,8 +30,10 @@ DEFAULT_INTERVAL_SECONDS = 900  # 15분
 DEFAULT_DB_NAME = "toc_db.db"
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, DEFAULT_DB_NAME)
 DEFAULT_SHEET_NAME = "TOC_Measure_Dashboard"
-DEFAULT_DEVICE_ID = "DEVICE_01"
-DEFAULT_TABLE_NAME = "measure_logs"
+DEFAULT_DEVICE_ID = "Samyang_Incheon"
+DEFAULT_TABLE_NAME = "Samyang_Incheon"
+DEFAULT_SUPABASE_URL = "https://abfjmqnurtjfbflquqsp.supabase.co/rest/v1/"
+DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiZmptcW51cnRqZmJmbHF1cXNwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTg3MjM4OCwiZXhwIjoyMDk1NDQ4Mzg4fQ.ejErBBFUNYlzBBCM0rLi_1mx49tuXQY_XArRuQ5dG0c"
 
 class GUIUploaderApp:
     def __init__(self, root):
@@ -53,8 +55,8 @@ class GUIUploaderApp:
         self.last_query = "N/A"
         self.is_paused = False
         self.is_mock = True  # 기본값 mock
-        self.supabase_url = ""
-        self.supabase_key = ""
+        self.supabase_url = DEFAULT_SUPABASE_URL
+        self.supabase_key = DEFAULT_SUPABASE_KEY
         
         # 설정 파일에서 사용자 설정값 로드
         self.load_config()
@@ -102,32 +104,76 @@ class GUIUploaderApp:
         self.root.after(3000, self.trigger_sync_now)
 
     def load_config(self):
-        """uploader_config.json 파일로부터 설정을 읽어옴 (읽기 전용 - 파일에 쓰기 없음)"""
-        if not os.path.exists(CONFIG_PATH):
-            print(f"[경고] 설정 파일이 없습니다: {CONFIG_PATH}")
-            return
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                self.db_path = config.get("db_path", DEFAULT_DB_PATH)
-                self.sheet_name = config.get("google_sheet_name", DEFAULT_SHEET_NAME)
-                self.supabase_table = config.get("supabase_table", DEFAULT_TABLE_NAME)
-                self.device_id = config.get("device_id", DEFAULT_DEVICE_ID)
-                self.interval_seconds = int(config.get("interval_seconds", DEFAULT_INTERVAL_SECONDS))
-                self.last_query = config.get("last_query", "N/A")
-                self.supabase_url = config.get("supabase_url", "")
-                self.supabase_key = config.get("supabase_key", "")
-                
-                config_mock = config.get("is_mock", True)
-                if self.supabase_url and self.supabase_key:
-                    self.is_mock = config_mock
-                else:
-                    self.is_mock = True
+        """uploader_config.json 파일로부터 설정을 읽어옴 (손상 시 백업에서 자동 복구)"""
+        config_loaded = False
+        for path in [CONFIG_PATH, CONFIG_PATH + ".bak"]:
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    self.db_path = config.get("db_path", DEFAULT_DB_PATH)
+                    self.sheet_name = config.get("google_sheet_name", DEFAULT_SHEET_NAME)
+                    self.supabase_table = config.get("supabase_table", DEFAULT_TABLE_NAME)
+                    self.device_id = config.get("device_id", DEFAULT_DEVICE_ID)
+                    self.interval_seconds = int(config.get("interval_seconds", DEFAULT_INTERVAL_SECONDS))
+                    self.last_upload_time = config.get("last_datetime", "None (First Run)")
+                    self.last_query = config.get("last_query", "N/A")
+                    self.is_paused = config.get("is_paused", False)
+                    self.supabase_url = config.get("supabase_url", DEFAULT_SUPABASE_URL)
+                    self.supabase_key = config.get("supabase_key", DEFAULT_SUPABASE_KEY)
                     
-                if not os.path.exists(self.db_path) and os.path.exists(DEFAULT_DB_PATH):
-                    self.db_path = DEFAULT_DB_PATH
+                    config_mock = config.get("is_mock", True)
+                    if self.supabase_url and self.supabase_key:
+                        self.is_mock = config_mock
+                    else:
+                        self.is_mock = True
+                        
+                    if not os.path.exists(self.db_path) and os.path.exists(DEFAULT_DB_PATH):
+                        self.db_path = DEFAULT_DB_PATH
+                    config_loaded = True
+                    if path != CONFIG_PATH:
+                        print(f"[복구] 백업 설정 파일에서 복구 성공: {path}")
+                    break
+            except Exception as e:
+                print(f"Config loading from {path} failed: {e}")
+        if not config_loaded:
+            self.save_config()
+
+    def save_config(self):
+        """현재 상태를 uploader_config.json에 안전하게 저장 (원자적 쓰기로 손상 방지)"""
+        try:
+            config_data = {
+                "db_path": self.db_path,
+                "google_sheet_name": self.sheet_name,
+                "supabase_table": self.supabase_table,
+                "device_id": self.device_id,
+                "interval_seconds": self.interval_seconds,
+                "last_datetime": self.last_upload_time,
+                "last_query": self.last_query,
+                "is_paused": self.is_paused,
+                "is_mock": self.is_mock,
+                "supabase_url": self.supabase_url,
+                "supabase_key": self.supabase_key
+            }
+            # 안전한 원자적 파일 쓰기: 임시 파일에 먼저 완전히 기록 후 교체
+            tmp_path = CONFIG_PATH + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, ensure_ascii=False, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            # 기존 파일을 백업으로 보존 후 교체
+            bak_path = CONFIG_PATH + ".bak"
+            if os.path.exists(CONFIG_PATH):
+                try:
+                    if os.path.exists(bak_path):
+                        os.remove(bak_path)
+                    os.rename(CONFIG_PATH, bak_path)
+                except Exception:
+                    pass
+            os.rename(tmp_path, CONFIG_PATH)
         except Exception as e:
-            print(f"Config loading failed: {e}")
+            print(f"Config saving failed: {e}")
 
     def build_ui(self):
         # 1. Header Frame (Title & Status Badge)
@@ -338,6 +384,7 @@ class GUIUploaderApp:
             self.db_path = file_path
             self.db_path_var.set(file_path)
             self.log_to_viewer(f"[설정 변경] 연동 DB 경로가 변경되었습니다: {file_path}")
+            self.save_config()
 
     def update_device_id(self):
         """사용자가 입력한 장비 고유 ID(Device ID) 반영"""
@@ -346,7 +393,8 @@ class GUIUploaderApp:
             self.device_id = new_device_id
             self.log_to_viewer(f"[설정 변경] 계측 장비 ID 식별자가 변경되었습니다: '{new_device_id}'")
             self.refresh_destination_label()
-            messagebox.showinfo("설정 적용", f"장비 고유 ID가 '{new_device_id}'로 이번 세션에 적용되었습니다.")
+            self.save_config()
+            messagebox.showinfo("설정 완료", f"장비 고유 ID가 '{new_device_id}'로 정상 적용되었습니다.")
         else:
             messagebox.showerror("에러", "장비 ID는 빈칸으로 지정할 수 없습니다.")
 
@@ -357,7 +405,8 @@ class GUIUploaderApp:
         self.log_to_viewer(f"[설정 변경] Supabase URL이 업데이트되었습니다: '{new_url}'")
         self.check_mock_status()
         self.refresh_destination_label()
-        messagebox.showinfo("설정 적용", "Supabase Project URL이 이번 세션에 적용되었습니다.")
+        self.save_config()
+        messagebox.showinfo("설정 완료", "Supabase Project URL이 성공적으로 저장되었습니다.")
 
     def update_supabase_table(self):
         """사용자가 입력한 Supabase 테이블 이름 반영"""
@@ -366,7 +415,8 @@ class GUIUploaderApp:
             self.supabase_table = new_table
             self.log_to_viewer(f"[설정 변경] Supabase 테이블 이름이 업데이트되었습니다: '{new_table}'")
             self.refresh_destination_label()
-            messagebox.showinfo("설정 적용", f"테이블 이름이 '{new_table}'로 이번 세션에 적용되었습니다.")
+            self.save_config()
+            messagebox.showinfo("설정 완료", f"데이터베이스 테이블 이름이 '{new_table}'로 변경되었습니다.")
         else:
             messagebox.showerror("에러", "테이블 이름은 빈칸으로 지정할 수 없습니다.")
 
@@ -377,7 +427,8 @@ class GUIUploaderApp:
         self.log_to_viewer("[설정 변경] Supabase Anon Key가 업데이트되었습니다.")
         self.check_mock_status()
         self.refresh_destination_label()
-        messagebox.showinfo("설정 적용", "Supabase Anon API Key가 이번 세션에 적용되었습니다.")
+        self.save_config()
+        messagebox.showinfo("설정 완료", "Supabase Anon API Key가 성공적으로 저장되었습니다.")
 
     def check_mock_status(self):
         """Supabase 접속 정보 충족 유무에 따라 실시간 런타임 전송 모드 토글"""
@@ -437,6 +488,7 @@ class GUIUploaderApp:
         self.is_paused = not self.is_paused
         self.update_status_badge()
         self.update_pause_button_style()
+        self.save_config()
         
         if self.is_paused:
             self.log_to_viewer("자동 동기화 스케줄이 일시정지 되었습니다.")
@@ -492,36 +544,6 @@ class GUIUploaderApp:
         worker.daemon = True
         worker.start()
 
-    def query_server_latest_datetime(self):
-        """백그라운드 스레드에서 호출: Supabase 서버의 가장 최신 Date_Time을 조회"""
-        try:
-            base_url = self.supabase_url.rstrip('/')
-            if "/rest/v1" in base_url:
-                req_url = f"{base_url}/{self.supabase_table}"
-            else:
-                req_url = f"{base_url}/rest/v1/{self.supabase_table}"
-            
-            req_url += "?select=Date_Time&order=Date_Time.desc&limit=1"
-            
-            req = urllib.request.Request(
-                req_url,
-                headers={
-                    "apikey": self.supabase_key,
-                    "Authorization": f"Bearer {self.supabase_key}",
-                    "Content-Type": "application/json"
-                },
-                method="GET"
-            )
-            
-            with urllib.request.urlopen(req, timeout=8) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                if data and len(data) > 0:
-                    return data[0]["Date_Time"]
-                return None
-        except Exception as e:
-            self.msg_queue.put(("log", f"[서버 조회 오류] 최신 데이터 시각 확인 실패: {e}"))
-            return None
-
     def uploader_worker_process(self):
         """백그라운드 스레드 Worker 실제 동작"""
         self.msg_queue.put(("log", "SQLite 로컬 DB 검사 시작..."))
@@ -530,17 +552,8 @@ class GUIUploaderApp:
             self.msg_queue.put(("log", f"[오류] DB 파일이 지정된 경로에 존재하지 않습니다: {self.db_path}"))
             self.msg_queue.put(("error", "DB 파일 실종"))
             return
-        
-        # Supabase 서버에서 가장 최신 업로드 시각을 직접 조회하여 증분 기준점 확인
-        if not self.is_mock:
-            self.msg_queue.put(("log", "서버 최신 데이터 시각 조회 중..."))
-            last_datetime = self.query_server_latest_datetime()
-            if last_datetime:
-                self.msg_queue.put(("log", f"서버 최신 데이터: {last_datetime}"))
-            else:
-                self.msg_queue.put(("log", "서버에 기존 데이터가 없습니다. 전체 데이터를 전송합니다."))
-        else:
-            last_datetime = self.last_upload_time if self.last_upload_time != "None (First Run)" else None
+            
+        last_datetime = self.last_upload_time if self.last_upload_time != "None (First Run)" else None
         
         # 증분 쿼리 구문 조합
         if last_datetime:
@@ -709,8 +722,10 @@ class GUIUploaderApp:
                         text=f"최근 동기화 성공 일시:  {latest_time}"
                     )
                     self.log_to_viewer(f"데이터 동기화 완료! 장비 ID: {self.device_id} | 최신 측정 시간: {latest_time}")
+                    self.save_config()
                     self._auto_minimize_if_startup()
                 elif msg_type == "success_empty":
+                    self.save_config()
                     self._auto_minimize_if_startup()
                 elif msg_type == "error":
                     self.log_to_viewer(f"[경고] 백그라운드 엔진 경보: {content}")

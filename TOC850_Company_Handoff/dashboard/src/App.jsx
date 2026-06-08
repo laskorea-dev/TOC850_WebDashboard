@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import Slider from 'rc-slider';
-import 'rc-slider/assets/index.css';
 import {
   XAxis,
   YAxis,
@@ -182,10 +180,7 @@ function App() {
   const [tableTocMax, setTableTocMax] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(() => {
-    const saved = localStorage.getItem('dashboard_items_per_page');
-    return saved ? Number(saved) : 50;
-  });
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   // 날짜 점프 상태
   const [jumpDate, setJumpDate] = useState('');
@@ -462,9 +457,16 @@ function App() {
     return trendChannels.filter(ch => !hiddenChannels.has(ch));
   }, [trendChannels, hiddenChannels]);
 
-  // Y축 자동 계산용 (절대 최소/최대)
-  const { absMin, absMax } = useMemo(() => {
-    if (visibleChannels.length === 0 || chartData.length === 0) return { absMin: 0, absMax: 100 };
+  // Y축 도메인: 수동 입력값 우선, 없으면 표시 중인 채널 기준 오토스케일
+  const yDomain = useMemo(() => {
+    // 수동 입력값이 있으면 우선
+    const manualMin = yMin !== '' ? parseFloat(yMin) : null;
+    const manualMax = yMax !== '' ? parseFloat(yMax) : null;
+    if (manualMin !== null && manualMax !== null) {
+      return [manualMin, manualMax];
+    }
+
+    if (visibleChannels.length === 0 || chartData.length === 0) return ['auto', 'auto'];
     let min = Infinity;
     let max = -Infinity;
     chartData.forEach(slot => {
@@ -476,24 +478,15 @@ function App() {
         }
       });
     });
-    if (min === Infinity) return { absMin: 0, absMax: 100 };
+    if (min === Infinity) return ['auto', 'auto'];
     const padding = (max - min) * 0.05 || 1;
-    return {
-      absMin: Math.max(0, Math.floor(min - padding)),
-      absMax: Math.ceil(max + padding)
-    };
-  }, [visibleChannels, chartData]);
-
-  // Y축 도메인: 수동 입력값 우선, 없으면 표시 중인 채널 기준 오토스케일
-  const yDomain = useMemo(() => {
-    // 수동 입력값이 있으면 우선
-    const manualMin = yMin !== '' ? parseFloat(yMin) : null;
-    const manualMax = yMax !== '' ? parseFloat(yMax) : null;
-    if (manualMin !== null && manualMax !== null) {
-      return [manualMin, manualMax];
-    }
-    return [absMin, absMax];
-  }, [absMin, absMax, yMin, yMax]);
+    const autoMin = Math.max(0, Math.floor(min - padding));
+    const autoMax = Math.ceil(max + padding);
+    return [
+      manualMin !== null ? manualMin : autoMin,
+      manualMax !== null ? manualMax : autoMax
+    ];
+  }, [visibleChannels, chartData, yMin, yMax]);
 
   // 범례 클릭 핸들러: 채널 표시/숨김 토글
   const handleLegendClick = useCallback((entry) => {
@@ -940,42 +933,35 @@ function App() {
                 </button>
               )}
 
+              {/* Y축 줌 */}
+              <span className="y-zoom-separator">|</span>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Y축:</span>
+              <input
+                type="number"
+                className="custom-select y-zoom-input"
+                placeholder="최소"
+                value={yMin}
+                onChange={(e) => setYMin(e.target.value)}
+              />
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>~</span>
+              <input
+                type="number"
+                className="custom-select y-zoom-input"
+                placeholder="최대"
+                value={yMax}
+                onChange={(e) => setYMax(e.target.value)}
+              />
+              {(yMin !== '' || yMax !== '') && (
+                <button
+                  className="channel-chip reset-chip"
+                  onClick={() => { setYMin(''); setYMax(''); }}
+                >
+                  자동
+                </button>
+              )}
             </div>
 
-            <div style={{ display: 'flex', width: '100%', height: 420 }}>
-              {/* Y축 슬라이더 바 (rc-slider) */}
-              <div style={{ padding: '20px 10px 30px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>Y 줌</span>
-                <div style={{ flex: 1 }}>
-                  <Slider
-                    vertical
-                    range
-                    min={absMin}
-                    max={absMax}
-                    value={[
-                      yMin !== '' ? parseFloat(yMin) : absMin,
-                      yMax !== '' ? parseFloat(yMax) : absMax
-                    ]}
-                    onChange={(val) => {
-                      setYMin(val[0]);
-                      setYMax(val[1]);
-                    }}
-                    styles={{
-                      track: { backgroundColor: 'var(--accent-cyan)' },
-                      handle: { borderColor: 'var(--accent-cyan)', backgroundColor: 'var(--bg-primary)' }
-                    }}
-                  />
-                </div>
-                {(yMin !== '' || yMax !== '') && (
-                  <button
-                    style={{ marginTop: '12px', fontSize: '0.75rem', padding: '4px 8px', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-muted)', borderRadius: '4px', cursor: 'pointer' }}
-                    onClick={() => { setYMin(''); setYMax(''); }}
-                  >
-                    초기화
-                  </button>
-                )}
-              </div>
-              <div style={{ flex: 1, height: '100%', minWidth: 0 }}>
+            <div style={{ width: '100%', height: 420 }}>
               {chartData.length === 0 ? (
                 <div className="empty-placeholder" style={{ padding: '40px 0' }}>
                   <p>선택한 조건에 부합하는 시계열 데이터가 없습니다.</p>
@@ -1031,7 +1017,6 @@ function App() {
                   </LineChart>
                 </ResponsiveContainer>
               )}
-              </div>
             </div>
           </section>
 
@@ -1105,21 +1090,16 @@ function App() {
               </div>
 
               <div className="filter-group">
-                <label>페이지당 표시</label>
-                <input
-                  type="number"
+                <label>페이지당</label>
+                <select
                   className="custom-select"
                   value={itemsPerPage}
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    if (val > 0) {
-                      setItemsPerPage(val);
-                      localStorage.setItem('dashboard_items_per_page', val);
-                    }
-                  }}
-                  style={{ width: '80px' }}
-                  min="1"
-                />
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                >
+                  <option value={25}>25건</option>
+                  <option value={50}>50건</option>
+                  <option value={100}>100건</option>
+                </select>
               </div>
 
               {/* 날짜 점프 (Jump to Date) 필터 바에 연동 */}
