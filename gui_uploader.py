@@ -8,6 +8,10 @@ import time
 from datetime import datetime
 import urllib.request
 import urllib.parse
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 
 # GUI libraries
 import tkinter as tk
@@ -52,6 +56,7 @@ class GUIUploaderApp:
         self.last_upload_time = "None (First Run)"
         self.last_query = "N/A"
         self.is_paused = False
+        self.last_alert_time = {}
         self.is_mock = True  # 기본값 mock
         self.supabase_url = ""
         self.supabase_key = ""
@@ -117,6 +122,13 @@ class GUIUploaderApp:
                 self.last_query = config.get("last_query", "N/A")
                 self.supabase_url = config.get("supabase_url", "")
                 self.supabase_key = config.get("supabase_key", "")
+                
+                # SMTP email configuration
+                self.smtp_server = config.get("smtp_server", "")
+                self.smtp_port = int(config.get("smtp_port", 587))
+                self.smtp_user = config.get("smtp_user", "")
+                self.smtp_password = config.get("smtp_password", "")
+                self.smtp_use_tls = config.get("smtp_use_tls", True)
                 
                 config_mock = config.get("is_mock", True)
                 if self.supabase_url and self.supabase_key:
@@ -680,6 +692,11 @@ class GUIUploaderApp:
                 status = response.status
                 if status in [200, 201, 204]:
                     self.msg_queue.put(("log", f"[Supabase 전송 대성공!] 기기 ID '{self.device_id}' 신규 데이터 {len(rows)}건이 실시간 PostgreSQL 클라우드에 적재 완료되었습니다!"))
+                    # 실시간 경고 검사 및 메일 전송
+                    try:
+                        self.check_and_send_alerts(json_payload)
+                    except Exception as ex:
+                        self.msg_queue.put(("log", f"[알림 이메일 검사 오류] {ex}"))
                     return True
                 else:
                     self.msg_queue.put(("log", f"[Supabase 전송 실패] 서버 상태 코드: {status}"))
@@ -687,6 +704,205 @@ class GUIUploaderApp:
         except Exception as e:
             self.msg_queue.put(("log", f"[Supabase API 연결 오류] 호스트 연결 실패: {e}"))
             return False
+
+    def fetch_site_config(self):
+        """Supabase에서 사이트 설정(임계값 및 이메일 수신 목록)을 실시간으로 가져옵니다."""
+        try:
+            base_url = self.supabase_url.rstrip('/')
+            if "/rest/v1" in base_url:
+                config_url = f"{base_url}/850_dashboard_site_config?site_id=eq.{self.device_id}"
+            else:
+                config_url = f"{base_url}/rest/v1/850_dashboard_site_config?site_id=eq.{self.device_id}"
+                
+            req = urllib.request.Request(
+                config_url,
+                headers={
+                    "apikey": self.supabase_key,
+                    "Authorization": f"Bearer {self.supabase_key}"
+                },
+                method="GET"
+            )
+            
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status == 200:
+                    res_data = json.loads(response.read().decode('utf-8'))
+                    if isinstance(res_data, list) and len(res_data) > 0:
+                        return res_data[0]
+        except Exception as e:
+            self.msg_queue.put(("log", f"[설정 정보 로드 실패] 오류: {e}"))
+        return None
+
+    def send_alert_email(self, recipients, subject, body):
+        """SMTP 서버를 사용하여 지정된 수신인들에게 이메일을 발송합니다."""
+        if not recipients:
+            self.msg_queue.put(("log", "[메일 발송 스킵] 수신인 주소가 없습니다."))
+            return False
+        
+        # uploader_config에 SMTP 설정이 제공되었는지 확인
+        smtp_server = getattr(self, "smtp_server", "")
+        smtp_port = getattr(self, "smtp_port", 587)
+        smtp_user = getattr(self, "smtp_user", "")
+        smtp_password = getattr(self, "smtp_password", "")
+        smtp_use_tls = getattr(self, "smtp_use_tls", True)
+        
+        if not smtp_server or not smtp_user or not smtp_password:
+            self.msg_queue.put(("log", "[메일 발송 실패] uploader_config.json에 SMTP 설정이 올바르지 않습니다."))
+            return False
+
+        try:
+            # 이메일 메시지 구성
+            msg = MIMEMultipart()
+            msg["From"] = smtp_user
+            msg["To"] = recipients
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "html", "utf-8"))
+
+            # SMTP 서버 연결
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
+            if smtp_use_tls:
+                server.starttls()
+            
+            server.login(smtp_user, smtp_password)
+            
+            # 수신인 주소 분리 (쉼표 구분 대응)
+            recipient_list = [r.strip() for r in recipients.split(",") if r.strip()]
+            
+            server.sendmail(smtp_user, recipient_list, msg.as_string())
+            server.quit()
+            
+            self.msg_queue.put(("log", f"[메일 발송 성공] 수신자: {recipients}"))
+            return True
+        except Exception as e:
+            self.msg_queue.put(("log", f"[메일 발송 실패] 오류: {e}"))
+            return False
+
+    def check_and_send_alerts(self, records):
+        """새로 수집된 레코드들의 TOC 수치가 경고 임계값을 초과하는지 검사하고 이메일을 발송합니다."""
+        # 1. 사이트 설정 로드 (임계값 및 이메일 수신 목록)
+        config_data = self.fetch_site_config()
+        
+        toc_alert_high = {}
+        alert_emails = ""
+        site_name = self.device_id
+        
+        if config_data:
+            site_name = config_data.get("site_name", self.device_id)
+            alert_json = config_data.get("toc_alert_high")
+            if isinstance(alert_json, str):
+                try:
+                    alert_json = json.loads(alert_json)
+                except Exception:
+                    pass
+            if isinstance(alert_json, dict):
+                toc_alert_high = alert_json
+                alert_emails = alert_json.get("alert_emails", "")
+
+        # 수신 이메일이 설정되어 있지 않으면 알림 검사 생략
+        if not alert_emails:
+            # self.msg_queue.put(("log", "[경고 알림] 웹 설정에 수신인 메일 주소가 등록되어 있지 않아 검사를 생략합니다."))
+            return
+
+        now_time = datetime.now()
+
+        for rec in records:
+            channel_id = str(rec.get("Channel", ""))
+            channel_name = rec.get("Channel_Name", f"채널 {channel_id}")
+            toc_val = rec.get("TOC_Conc", 0.0)
+            date_time = rec.get("Date_Time", "")
+
+            # 2. 임계값(경고치) 확인
+            caution_limit = 5000.0
+            warning_limit = 6000.0
+
+            # 채널별 요구사항 기반 초기값(폴백) 설정
+            if channel_id == "3":  # 방류수
+                caution_limit = 40.0
+                warning_limit = 50.0
+            elif channel_id == "2":  # 1차처리수 (고농도조 유력)
+                caution_limit = 900.0
+                warning_limit = 1000.0
+            elif channel_id == "1":  # 유입수 (원수조 유력)
+                caution_limit = 1600.0
+                warning_limit = 2000.0
+
+            # DB 로드 값 적용
+            ch_config = toc_alert_high.get(channel_id)
+            if ch_config:
+                if isinstance(ch_config, dict):
+                    caution_limit = float(ch_config.get("caution", caution_limit))
+                    warning_limit = float(ch_config.get("warning", warning_limit))
+                else:
+                    # 구버전 단일 숫자 형태 대응
+                    try:
+                        warning_limit = float(ch_config)
+                        caution_limit = min(caution_limit, warning_limit * 0.8)
+                    except ValueError:
+                        pass
+
+            # 3. 경고 수치 초과 여부 확인
+            if toc_val >= warning_limit:
+                # 4. 이메일 쿨다운(1시간) 확인
+                last_time = self.last_alert_time.get(channel_id)
+                if last_time and (now_time - last_time).total_seconds() < 3600:
+                    continue  # 쿨다운 미경과 시 전송 생략
+
+                # 이메일 제목 및 본문 작성
+                subject = f"[TOC 경고 알림] {site_name} - {channel_name} 경고 수치 초과 ({toc_val} ppm)"
+                body = f"""
+                <html>
+                <body style="font-family: 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                        <div style="background-color: #ef4444; color: white; padding: 20px; text-align: center;">
+                            <h2 style="margin: 0; font-size: 1.5rem;">🚨 TOC-850 경고 초과 알림</h2>
+                        </div>
+                        <div style="padding: 24px; background-color: #fff;">
+                            <p style="font-size: 0.95rem; font-weight: bold; color: #ef4444;">
+                                계측 수치가 설정된 경고 임계값을 초과하였습니다. 즉각적인 확인이 필요합니다.
+                            </p>
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.9rem;">
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold; width: 30%;">모니터링 사이트</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{site_name}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">계측 채널</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{channel_name} (Ch {channel_id})</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">측정 시간</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{date_time}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold; color: #ef4444;">현재 측정값</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold; color: #ef4444; font-size: 1.1rem;">{toc_val} ppm</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">경고 설정치</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{warning_limit} ppm</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">주의 설정치</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{caution_limit} ppm</td>
+                                </tr>
+                            </table>
+                            <p style="margin-top: 24px; font-size: 0.82rem; color: #64748b;">
+                                * 본 메일은 경고 발생 시 1시간 간격으로 쿨다운 제한이 걸려 발송됩니다.<br/>
+                                * 임계값 및 이메일 수신 주소는 대시보드 웹설정 창에서 언제든지 조정 가능합니다.
+                            </p>
+                        </div>
+                        <div style="background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 0.8rem; color: #94a3b8;">
+                            LAS KOREA 온라인 계측 모니터링 시스템
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """
+                
+                # 메일 전송 실행
+                success = self.send_alert_email(alert_emails, subject, body)
+                if success:
+                    # 메일 전송 성공 시 쿨다운 타임 업데이트
+                    self.last_alert_time[channel_id] = now_time
 
     # =========================================================================
     # QUEUE MESSAGE LISTENER (UI Thread)

@@ -9,5 +9,10 @@
     "is_paused": false,
     "is_mock": false,
     "supabase_url": "YOUR_SUPABASE_URL_HERE",
-    "supabase_key": "YOUR_SUPABASE_KEY_HERE"
+    "supabase_key": "YOUR_SUPABASE_KEY_HERE",
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "smtp_user": "alert-sender@gmail.com",
+    "smtp_password": "your-app-password",
+    "smtp_use_tls": true
 }
