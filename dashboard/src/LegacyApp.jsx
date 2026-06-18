@@ -156,7 +156,7 @@ function LegacyApp() {
 
   // 트렌드 차트 필터
   const [selectedAttr, setSelectedAttr] = useState('TOC_Conc');
-  const [timeRange, setTimeRange] = useState('7d');
+  const [timeRange, setTimeRange] = useState('24h');
   const [customStart, setCustomStart] = useState(() => {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
