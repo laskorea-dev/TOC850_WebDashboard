@@ -243,7 +243,7 @@ function App() {
       });
 
       if (response.ok) {
-        const confList = await response.ok ? await response.json() : [];
+        const confList = response.ok ? await response.json() : [];
         if (Array.isArray(confList) && confList.length > 0) {
           const conf = confList[0];
           let alertObj = null;

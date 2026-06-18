@@ -118,7 +118,7 @@ const getDateFilterParams = (range, start, end) => {
   return ''; // 'all' 또는 'All'
 };
 
-function App() {
+function LegacyApp() {
   // URL 파라미터 ?site= 존재 여부 분석
   const hasSiteParam = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -1354,4 +1354,4 @@ function App() {
   );
 }
 
-export default App;
+export default LegacyApp;
