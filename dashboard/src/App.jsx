@@ -156,7 +156,7 @@ function App() {
 
   // 트렌드 차트 필터
   const [selectedAttr, setSelectedAttr] = useState('TOC_Conc');
-  const [timeRange, setTimeRange] = useState('7d');
+  const [timeRange, setTimeRange] = useState('24h');
   const [customStart, setCustomStart] = useState(() => {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -195,6 +195,10 @@ function App() {
   const [csvRangeType, setCsvRangeType] = useState('24h');
   const [csvCustomStart, setCsvCustomStart] = useState('');
   const [csvCustomEnd, setCsvCustomEnd] = useState('');
+
+  // 알림 기준값 설정 모달 상태
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [localAlerts, setLocalAlerts] = useState({});
 
   // =========================================================================
   // site_config 로드 함수 추가
@@ -252,6 +256,91 @@ function App() {
       loading: false
     }));
   }, [siteId]);
+
+  // 대시보드 내의 고유 채널(번호와 이름의 쌍) 목록 추출
+  const uniqueChannels = useMemo(() => {
+    const map = new Map();
+    // 수집된 전체 데이터에서 채널 목록을 동적으로 구성
+    data.forEach(item => {
+      if (item.Channel !== undefined && item.Channel !== null) {
+        map.set(String(item.Channel), item.Channel_Name || `채널 ${item.Channel}`);
+      }
+    });
+    
+    // 만약 데이터가 아직 없다면 폴백용으로 임의의 기본 채널(1~8)을 채워줌
+    if (map.size === 0) {
+      for (let i = 1; i <= 8; i++) {
+        map.set(String(i), `채널 ${i}`);
+      }
+    }
+
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [data]);
+
+  // 임계값 저장 API 호출 (Supabase PATCH)
+  const saveSiteConfig = useCallback(async (updatedAlerts) => {
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const configEndpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/850_dashboard_site_config`
+        : `${baseUrl}/rest/v1/850_dashboard_site_config`;
+
+      const response = await fetch(`${configEndpoint}?site_id=eq.${siteId}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({
+          toc_alert_high: updatedAlerts
+        })
+      });
+
+      if (response.ok) {
+        alert("설정이 성공적으로 저장되었습니다!");
+        loadSiteConfig(); // 설정 재로드
+        return true;
+      } else {
+        const errData = await response.json();
+        throw new Error(errData.message || '설정 저장 중 오류가 발생했습니다.');
+      }
+    } catch (err) {
+      console.error("설정 저장 실패:", err);
+      alert(`설정 저장 실패: ${err.message}`);
+      return false;
+    }
+  }, [siteId, loadSiteConfig]);
+
+  // 모달이 열릴 때 localAlerts 상태 동기화
+  useEffect(() => {
+    if (isConfigModalOpen) {
+      const initial = {};
+      uniqueChannels.forEach(ch => {
+        const configVal = siteConfig.toc_alert_high?.[ch.id] || siteConfig.toc_alert_high?.[String(ch.id)];
+        let caution = 5000;
+        let warning = 6000;
+        if (configVal !== undefined && configVal !== null) {
+          if (typeof configVal === 'object' && !Array.isArray(configVal)) {
+            caution = configVal.caution || 5000;
+            warning = configVal.warning || 6000;
+          } else {
+            const parsedVal = parseFloat(configVal);
+            if (!isNaN(parsedVal)) {
+              warning = parsedVal;
+              caution = Math.min(5000, parsedVal * 0.8);
+            }
+          }
+        }
+        initial[ch.id] = { caution, warning };
+      });
+      setLocalAlerts(initial);
+    }
+  }, [isConfigModalOpen, uniqueChannels, siteConfig]);
 
   // =========================================================================
   // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
@@ -571,11 +660,42 @@ function App() {
     }
   }, [jumpDate, tableFilteredData, itemsPerPage]);
 
-  // 채널별 TOC 알림 경계값 조회 유틸
-  const getAlertThreshold = useCallback((channel) => {
-    if (!siteConfig || !siteConfig.toc_alert_high) return null;
-    const threshold = parseFloat(siteConfig.toc_alert_high[channel] || siteConfig.toc_alert_high[String(channel)]);
-    return isNaN(threshold) ? null : threshold;
+  // 채널별 TOC 3단계 알림 경계값 및 상태 조회 유틸
+  const getAlertStatus = useCallback((channel, value) => {
+    // 기본값 (5000 이상) 설정
+    let cautionLimit = 5000;
+    let warningLimit = 6000;
+
+    if (siteConfig && siteConfig.toc_alert_high) {
+      const configVal = siteConfig.toc_alert_high[channel] || siteConfig.toc_alert_high[String(channel)];
+      
+      if (configVal !== undefined && configVal !== null) {
+        if (typeof configVal === 'object' && !Array.isArray(configVal)) {
+          // JSON 객체 형태 (caution 및 warning 필드 포함)
+          cautionLimit = parseFloat(configVal.caution || 5000);
+          warningLimit = parseFloat(configVal.warning || 6000);
+        } else {
+          // 기존 단일 숫자 형태
+          const parsedVal = parseFloat(configVal);
+          if (!isNaN(parsedVal)) {
+            warningLimit = parsedVal;
+            // 경고 임계값 기준 주의 임계값은 경고값의 80% 또는 5000 중 하나로 설정
+            cautionLimit = Math.min(5000, parsedVal * 0.8);
+          }
+        }
+      }
+    }
+
+    const valNum = parseFloat(value);
+    if (isNaN(valNum)) return { status: 'normal', cautionLimit, warningLimit };
+
+    if (!isNaN(warningLimit) && valNum >= warningLimit) {
+      return { status: 'warning', cautionLimit, warningLimit };
+    }
+    if (!isNaN(cautionLimit) && valNum >= cautionLimit) {
+      return { status: 'caution', cautionLimit, warningLimit };
+    }
+    return { status: 'normal', cautionLimit, warningLimit };
   }, [siteConfig]);
 
   // CSV 다운로드 전용 필터링 및 다운로드 구현
@@ -817,7 +937,10 @@ function App() {
           <h1>{siteConfig.site_name}</h1>
           <p>LAS KOREA 제공 · 총 {data.length.toLocaleString()}건 수집</p>
         </div>
-        <div className="header-controls">
+        <div className="header-controls" style={{ display: 'flex', gap: '8px' }}>
+          <button className="filter-btn" onClick={() => setIsConfigModalOpen(true)}>
+            설정 ⚙️
+          </button>
           <button className="filter-btn active" onClick={loadData}>
             {loading ? '로딩 중...' : '새로고침 🔄'}
           </button>
@@ -1162,15 +1285,26 @@ function App() {
                     </tr>
                   ) : (
                     paginatedData.map((row, index) => {
-                      const threshold = getAlertThreshold(row.Channel);
-                      const isAlert = threshold !== null && row.TOC_Conc > threshold;
+                      const { status, cautionLimit, warningLimit } = getAlertStatus(row.Channel, row.TOC_Conc);
+                      const isWarning = status === 'warning';
+                      const isCaution = status === 'caution';
+                      
+                      let rowClass = '';
+                      if (isWarning) rowClass = 'row-alert';
+                      else if (isCaution) rowClass = 'row-caution';
+
+                      let textColor = 'inherit';
+                      if (isWarning) textColor = 'var(--accent-rose)';
+                      else if (isCaution) textColor = 'var(--accent-yellow, #eab308)';
+
                       return (
-                        <tr key={index} className={isAlert ? 'row-alert' : ''}>
+                        <tr key={index} className={rowClass}>
                           <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
                           <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{row.Channel_Name}</td>
-                          <td style={{ fontWeight: 600, color: isAlert ? 'var(--accent-rose)' : 'inherit', whiteSpace: 'nowrap' }}>
+                          <td style={{ fontWeight: 600, color: textColor, whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                              {isAlert && <span className="alert-dot" title={`경고 기준치 (${threshold} ppm) 초과`} />}
+                              {isWarning && <span className="alert-dot warning" title={`경고 기준치 (${warningLimit} ppm) 초과`} />}
+                              {isCaution && <span className="alert-dot caution" title={`주의 기준치 (${cautionLimit} ppm) 초과`} />}
                               <span>{row.TOC_Conc}</span>
                             </div>
                           </td>
@@ -1344,6 +1478,104 @@ function App() {
                 <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
                   <button className="filter-btn" onClick={() => setIsCsvModalOpen(false)}>취소</button>
                   <button className="sim-btn" onClick={handleCSVDownload}>내보내기 실행 📥</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================ */}
+          {/* 채널별 알림 기준값 설정 모달                   */}
+          {/* ============================================ */}
+          {isConfigModalOpen && (
+            <div className="modal-overlay" onClick={() => setIsConfigModalOpen(false)}>
+              <div className="glass-card modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px', width: '90%' }}>
+                <div className="modal-header">
+                  <h3>⚙️ 알림 임계값 관리 설정</h3>
+                  <button className="modal-close-btn" onClick={() => setIsConfigModalOpen(false)}>✕</button>
+                </div>
+
+                <div className="modal-body" style={{ color: 'var(--text-main)' }}>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>
+                    각 채널별로 평시(흰색), 주의(노랑), 경고(빨강)의 임계값(ppm)을 개별 지정할 수 있습니다.<br/>
+                    주의 및 경고 값은 5000 이상으로 맞춰 설정하는 것이 권장됩니다.
+                  </p>
+
+                  <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                    <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
+                          <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
+                          <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
+                          <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {uniqueChannels.map(ch => {
+                          const alertLimits = localAlerts[ch.id] || { caution: 5000, warning: 6000 };
+                          return (
+                            <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                              <td style={{ padding: '10px', fontWeight: 600 }}>
+                                {ch.name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>(Ch {ch.id})</span>
+                              </td>
+                              <td style={{ padding: '8px' }}>
+                                <input
+                                  type="number"
+                                  className="custom-select"
+                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                                  value={alertLimits.caution}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setLocalAlerts(prev => ({
+                                      ...prev,
+                                      [ch.id]: { ...prev[ch.id], caution: val }
+                                    }));
+                                  }}
+                                />
+                              </td>
+                              <td style={{ padding: '8px' }}>
+                                <input
+                                  type="number"
+                                  className="custom-select"
+                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                                  value={alertLimits.warning}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setLocalAlerts(prev => ({
+                                      ...prev,
+                                      [ch.id]: { ...prev[ch.id], warning: val }
+                                    }));
+                                  }}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                  <button className="filter-btn" onClick={() => setIsConfigModalOpen(false)}>취소</button>
+                  <button className="sim-btn" onClick={async () => {
+                    let isValid = true;
+                    uniqueChannels.forEach(ch => {
+                      const lim = localAlerts[ch.id];
+                      if (lim && (lim.caution < 5000 || lim.warning < 5000)) {
+                        isValid = false;
+                      }
+                    });
+                    if (!isValid) {
+                      if (!window.confirm("주의 또는 경고 기준값이 5000 미만인 채널이 존재합니다. 정말로 저장하시겠습니까?")) {
+                        return;
+                      }
+                    }
+
+                    const success = await saveSiteConfig(localAlerts);
+                    if (success) {
+                      setIsConfigModalOpen(false);
+                    }
+                  }}>설정 저장 💾</button>
                 </div>
               </div>
             </div>
