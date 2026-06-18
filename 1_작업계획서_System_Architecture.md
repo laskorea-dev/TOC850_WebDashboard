@@ -12,8 +12,10 @@ graph TD
         Meter_A1[(SQLite DB A1)] -->|Device_ID: METER_A1| GUI_A1[gui_uploader.py - GUI 창]
         Meter_A2[(SQLite DB A2)] -->|Device_ID: METER_A2| GUI_A2[gui_uploader.py - GUI 창]
         GUI_A1 & GUI_A2 -->|Supabase 클라이언트 API| Supabase_A[(Supabase DB: A사 프로젝트)]
-        GUI_A1 & GUI_A2 -->|SMTP 서버 연동| SMTP_Server[wsmtp.ecounterp.com]
+        GUI_A1 & GUI_A2 -->|알림 발송 모듈 alerts/| Alert_Sender{Alert Sender}
+        Alert_Sender -->|SMTP 이메일 발송| SMTP_Server[wsmtp.ecounterp.com]
         SMTP_Server -->|경고 메일 발송| Admin_Email([관리자 이메일 수신])
+        Alert_Sender -.->|미래 확장: MMS, 카카오톡 등| Future_Alerts([카톡/MMS 알림 수신])
     end
 
     subgraph Client_Site_B [고객사 B 현장]
@@ -48,9 +50,10 @@ graph TD
 3. **3단계 경고 시각화 및 원격 설정 연동**:
    * 대시보드상에서 계측 수치를 **평시(흰색) · 주의(노랑) · 경고(빨강)** 3단계로 구분하여 표시합니다.
    * 주의/경고 임계치 및 수신자 이메일 주소록은 웹 대시보드 설정 창에서 변경할 수 있으며, 기존 DB 스키마 변경 없이 `toc_alert_high` 컬럼의 JSON 구조에 포장하여 Supabase에 동기화합니다.
-4. **로컬 SMTP 경고 메일 발송 및 비동기 테스트**:
-   * 계측기 PC의 파이썬 업로더가 데이터를 업로드할 때 경고 수치 초과를 감지하면 로컬 SMTP 서버(`wsmtp.ecounterp.com`)를 통해 경고 메일을 발송합니다. (채널별 1시간 발송 제한 쿨다운 적용)
-   * 브라우저 보안을 위해 웹 대시보드에서 "테스트 메일 발송"을 누르면 Supabase에 `trigger_test_email: true` 신호를 보냅니다. 이를 파이썬 업로더가 10초 주기로 감지하여 이메일을 발송하고 플래그를 초기화합니다.
+4. **알람 인터페이스 추상화 및 로컬 SMTP 이메일 모듈화**:
+   * 계측기 PC의 파이썬 업로더가 데이터를 업로드할 때 경고 수치 초과를 감지하면 추상화된 알람 발송 모듈(`alerts/`)을 통하여 경고를 발송합니다.
+   * 현재는 로컬 SMTP 서버(`wsmtp.ecounterp.com`)를 연동한 이메일 모듈(`EmailAlertSender`)이 동작 중이며(채널별 1시간 발송 제한 쿨다운 적용), 추후 카카오톡이나 MMS 알림이 개발되면 `BaseAlertSender` 인터페이스를 구현하는 새로운 모듈로 손쉽게 통째로 교체(또는 확장)할 수 있도록 설계되었습니다.
+   * 브라우저 보안을 위해 웹 대시보드에서 "테스트 메일 발송"을 누르면 Supabase에 `trigger_test_email: true` 신호를 보냅니다. 이를 파이썬 업로더가 10초 주기로 감지하여 추상화된 알림 모듈을 통해 발송하고 플래그를 초기화합니다.
 
 ---
 

@@ -8,9 +8,7 @@ import time
 from datetime import datetime
 import urllib.request
 import urllib.parse
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from alerts import get_alert_sender
 
 
 # GUI libraries
@@ -130,6 +128,18 @@ class GUIUploaderApp:
                 self.smtp_user = config.get("smtp_user", "")
                 self.smtp_password = config.get("smtp_password", "")
                 self.smtp_use_tls = config.get("smtp_use_tls", True)
+                
+                # Alert Sender Initialization
+                self.alert_type = config.get("alert_type", "email")
+                self.alert_sender = get_alert_sender(
+                    self.alert_type,
+                    smtp_server=self.smtp_server,
+                    smtp_port=self.smtp_port,
+                    smtp_user=self.smtp_user,
+                    smtp_password=self.smtp_password,
+                    smtp_use_tls=self.smtp_use_tls,
+                    log_queue=self.msg_queue
+                )
                 
                 config_mock = config.get("is_mock", True)
                 if self.supabase_url and self.supabase_key:
@@ -740,50 +750,6 @@ class GUIUploaderApp:
             self.msg_queue.put(("log", f"[설정 정보 로드 실패] 오류: {e}"))
         return None
 
-    def send_alert_email(self, recipients, subject, body):
-        """SMTP 서버를 사용하여 지정된 수신인들에게 이메일을 발송합니다."""
-        if not recipients:
-            self.msg_queue.put(("log", "[메일 발송 스킵] 수신인 주소가 없습니다."))
-            return False
-        
-        # uploader_config에 SMTP 설정이 제공되었는지 확인
-        smtp_server = getattr(self, "smtp_server", "")
-        smtp_port = getattr(self, "smtp_port", 587)
-        smtp_user = getattr(self, "smtp_user", "")
-        smtp_password = getattr(self, "smtp_password", "")
-        smtp_use_tls = getattr(self, "smtp_use_tls", True)
-        
-        if not smtp_server or not smtp_user or not smtp_password:
-            self.msg_queue.put(("log", "[메일 발송 실패] uploader_config.json에 SMTP 설정이 올바르지 않습니다."))
-            return False
-
-        try:
-            # 이메일 메시지 구성
-            msg = MIMEMultipart()
-            msg["From"] = smtp_user
-            msg["To"] = recipients
-            msg["Subject"] = subject
-            msg.attach(MIMEText(body, "html", "utf-8"))
-
-            # SMTP 서버 연결
-            server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
-            if smtp_use_tls:
-                server.starttls()
-            
-            server.login(smtp_user, smtp_password)
-            
-            # 수신인 주소 분리 (쉼표 구분 대응)
-            recipient_list = [r.strip() for r in recipients.split(",") if r.strip()]
-            
-            server.sendmail(smtp_user, recipient_list, msg.as_string())
-            server.quit()
-            
-            self.msg_queue.put(("log", f"[메일 발송 성공] 수신자: {recipients}"))
-            return True
-        except Exception as e:
-            self.msg_queue.put(("log", f"[메일 발송 실패] 오류: {e}"))
-            return False
-
     def check_and_send_alerts(self, records):
         """새로 수집된 레코드들의 TOC 수치가 경고 임계값을 초과하는지 검사하고 이메일을 발송합니다."""
         # 1. 사이트 설정 로드 (임계값 및 이메일 수신 목록)
@@ -896,10 +862,10 @@ class GUIUploaderApp:
                 </html>
                 """
                 
-                # 메일 전송 실행
-                success = self.send_alert_email(alert_emails, subject, body)
+                # 알림 전송 실행 (추상화된 알람 발송기 사용)
+                success = self.alert_sender.send_alert(alert_emails, subject, body)
                 if success:
-                    # 메일 전송 성공 시 쿨다운 타임 업데이트
+                    # 전송 성공 시 쿨다운 타임 업데이트
                     self.last_alert_time[channel_id] = now_time
 
     def bg_check_test_email_trigger(self):
@@ -969,8 +935,8 @@ class GUIUploaderApp:
                 </body>
                 </html>
                 """
-                # 메일 쏘기
-                self.send_alert_email(alert_emails, subject, body)
+                # 알림 쏘기 (추상화된 알람 발송기 사용)
+                self.alert_sender.send_alert(alert_emails, subject, body)
                 
             # 메일 발송 후 DB 플래그 원상 복구 (trigger_test_email: False)
             try:
