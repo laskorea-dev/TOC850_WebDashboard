@@ -453,31 +453,25 @@ function App() {
       uniqueChannels.forEach(ch => {
         const configVal = siteConfig.toc_alert_high?.[ch.id] || siteConfig.toc_alert_high?.[String(ch.id)];
         const chStr = String(ch.id);
-        let caution = 5000;
         let warning = 6000;
         if (chStr === '3') {
-          caution = 40;
           warning = 50;
         } else if (chStr === '2') {
-          caution = 900;
           warning = 1000;
         } else if (chStr === '1') {
-          caution = 1600;
           warning = 2000;
         }
         if (configVal !== undefined && configVal !== null) {
           if (typeof configVal === 'object' && !Array.isArray(configVal)) {
-            caution = configVal.caution || 5000;
             warning = configVal.warning || 6000;
           } else {
             const parsedVal = parseFloat(configVal);
             if (!isNaN(parsedVal)) {
               warning = parsedVal;
-              caution = Math.min(5000, parsedVal * 0.8);
             }
           }
         }
-        initial[ch.id] = { caution, warning };
+        initial[ch.id] = { warning };
       });
       setLocalAlerts(initial);
       
@@ -808,21 +802,17 @@ function App() {
     }
   }, [jumpDate, tableFilteredData, itemsPerPage]);
 
-  // 채널별 TOC 3단계 알림 경계값 및 상태 조회 유틸
+  // 채널별 TOC 알림 경계값 및 상태 조회 유틸 (주의 경보는 사용자 요청에 의해 제외하고 경고만 표시)
   const getAlertStatus = useCallback((channel, value) => {
     // 기본값 설정
-    let cautionLimit = 5000;
     let warningLimit = 6000;
 
     const chStr = String(channel);
     if (chStr === '3') { // 방류수
-      cautionLimit = 40;
       warningLimit = 50;
     } else if (chStr === '2') { // 1차처리수 (고농도조)
-      cautionLimit = 900;
       warningLimit = 1000;
     } else if (chStr === '1') { // 유입수 (원수조)
-      cautionLimit = 1600;
       warningLimit = 2000;
     }
 
@@ -831,31 +821,25 @@ function App() {
       
       if (configVal !== undefined && configVal !== null) {
         if (typeof configVal === 'object' && !Array.isArray(configVal)) {
-          // JSON 객체 형태 (caution 및 warning 필드 포함)
-          cautionLimit = parseFloat(configVal.caution || 5000);
+          // JSON 객체 형태
           warningLimit = parseFloat(configVal.warning || 6000);
         } else {
           // 기존 단일 숫자 형태
           const parsedVal = parseFloat(configVal);
           if (!isNaN(parsedVal)) {
             warningLimit = parsedVal;
-            // 경고 임계값 기준 주의 임계값은 경고값의 80% 또는 5000 중 하나로 설정
-            cautionLimit = Math.min(5000, parsedVal * 0.8);
           }
         }
       }
     }
 
     const valNum = parseFloat(value);
-    if (isNaN(valNum)) return { status: 'normal', cautionLimit, warningLimit };
+    if (isNaN(valNum)) return { status: 'normal', warningLimit };
 
     if (!isNaN(warningLimit) && valNum >= warningLimit) {
-      return { status: 'warning', cautionLimit, warningLimit };
+      return { status: 'warning', warningLimit };
     }
-    if (!isNaN(cautionLimit) && valNum >= cautionLimit) {
-      return { status: 'caution', cautionLimit, warningLimit };
-    }
-    return { status: 'normal', cautionLimit, warningLimit };
+    return { status: 'normal', warningLimit };
   }, [siteConfig]);
 
   // CSV 다운로드 전용 필터링 및 다운로드 구현
@@ -1142,7 +1126,7 @@ function App() {
               <span>⚙️</span> 알림 임계값 및 이메일 관리
             </h3>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-              각 채널별 평시, 주의(노랑), 경고(빨강) 임계치(ppm) 및 수신 이메일 리스트를 제어합니다.
+              각 채널별 경고(빨강) 임계치(ppm) 및 수신 이메일 리스트를 제어합니다.
             </p>
 
             <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
@@ -1150,32 +1134,16 @@ function App() {
                 <thead>
                   <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
                     <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
-                    <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
                     <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {uniqueChannels.map(ch => {
-                    const alertLimits = localAlerts[ch.id] || { caution: 5000, warning: 6000 };
+                    const alertLimits = localAlerts[ch.id] || { warning: 6000 };
                     return (
                       <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '10px', fontWeight: 600 }}>
                           {ch.name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>(Ch {ch.id})</span>
-                        </td>
-                        <td style={{ padding: '8px' }}>
-                          <input
-                            type="number"
-                            className="custom-select"
-                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
-                            value={alertLimits.caution}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setLocalAlerts(prev => ({
-                                ...prev,
-                                [ch.id]: { ...prev[ch.id], caution: val }
-                              }));
-                            }}
-                          />
                         </td>
                         <td style={{ padding: '8px' }}>
                           <input
@@ -1223,12 +1191,12 @@ function App() {
                 let isValid = true;
                 uniqueChannels.forEach(ch => {
                   const lim = localAlerts[ch.id];
-                  if (lim && (lim.caution < 0 || lim.warning < 0)) {
+                  if (lim && lim.warning < 0) {
                     isValid = false;
                   }
                 });
                 if (!isValid) {
-                  alert("주의 또는 경고 기준값은 0 이상이어야 합니다.");
+                  alert("경고 기준값은 0 이상이어야 합니다.");
                   return;
                 }
 
@@ -1364,8 +1332,6 @@ function App() {
                   let statusBadge = <span style={{ color: 'var(--text-muted)' }}>● 정상</span>;
                   if (status === 'warning') {
                     statusBadge = <span style={{ color: 'var(--accent-rose)', fontWeight: 700 }}>● 경고 (Warning)</span>;
-                  } else if (status === 'caution') {
-                    statusBadge = <span style={{ color: 'var(--accent-amber)', fontWeight: 700 }}>● 주의 (Caution)</span>;
                   }
 
                   return (
@@ -1788,17 +1754,14 @@ function App() {
                     </tr>
                   ) : (
                     paginatedData.map((row, index) => {
-                      const { status, cautionLimit, warningLimit } = getAlertStatus(row.Channel, row.TOC_Conc);
+                      const { status, warningLimit } = getAlertStatus(row.Channel, row.TOC_Conc);
                       const isWarning = status === 'warning';
-                      const isCaution = status === 'caution';
                       
                       let rowClass = '';
                       if (isWarning) rowClass = 'row-alert';
-                      else if (isCaution) rowClass = 'row-caution';
 
                       let textColor = 'inherit';
                       if (isWarning) textColor = 'var(--accent-rose)';
-                      else if (isCaution) textColor = 'var(--accent-yellow, #eab308)';
 
                       return (
                         <tr key={index} className={rowClass}>
@@ -1807,7 +1770,6 @@ function App() {
                           <td style={{ fontWeight: 600, color: textColor, whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                               {isWarning && <span className="alert-dot warning" title={`경고 기준치 (${warningLimit} ppm) 초과`} />}
-                              {isCaution && <span className="alert-dot caution" title={`주의 기준치 (${cautionLimit} ppm) 초과`} />}
                               <span>{row.TOC_Conc}</span>
                             </div>
                           </td>
@@ -1999,8 +1961,8 @@ function App() {
 
                 <div className="modal-body" style={{ color: 'var(--text-main)' }}>
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>
-                    각 채널별로 평시(흰색), 주의(노랑), 경고(빨강)의 임계값(ppm)을 개별 지정할 수 있습니다.<br/>
-                    주의 및 경고 값은 5000 이상으로 맞춰 설정하는 것이 권장됩니다.
+                    각 채널별로 경고(빨강)의 임계값(ppm)을 개별 지정할 수 있습니다.<br/>
+                    경고 값은 5000 이상으로 맞춰 설정하는 것이 권장됩니다.
                   </p>
 
                   <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
@@ -2008,32 +1970,16 @@ function App() {
                       <thead>
                         <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
                           <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
-                          <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
                           <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
                         </tr>
                       </thead>
                       <tbody>
                         {uniqueChannels.map(ch => {
-                          const alertLimits = localAlerts[ch.id] || { caution: 5000, warning: 6000 };
+                          const alertLimits = localAlerts[ch.id] || { warning: 6000 };
                           return (
                             <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                               <td style={{ padding: '10px', fontWeight: 600 }}>
                                 {ch.name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>(Ch {ch.id})</span>
-                              </td>
-                              <td style={{ padding: '8px' }}>
-                                <input
-                                  type="number"
-                                  className="custom-select"
-                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
-                                  value={alertLimits.caution}
-                                  onChange={(e) => {
-                                    const val = parseFloat(e.target.value) || 0;
-                                    setLocalAlerts(prev => ({
-                                      ...prev,
-                                      [ch.id]: { ...prev[ch.id], caution: val }
-                                    }));
-                                  }}
-                                />
                               </td>
                               <td style={{ padding: '8px' }}>
                                 <input
@@ -2083,12 +2029,12 @@ function App() {
                     let isValid = true;
                     uniqueChannels.forEach(ch => {
                       const lim = localAlerts[ch.id];
-                      if (lim && (lim.caution < 0 || lim.warning < 0)) {
+                      if (lim && lim.warning < 0) {
                         isValid = false;
                       }
                     });
                     if (!isValid) {
-                      alert("주의 또는 경고 기준값은 0 이상이어야 합니다.");
+                      alert("경고 기준값은 0 이상이어야 합니다.");
                       return;
                     }
 
