@@ -300,6 +300,83 @@ function App() {
       .sort((a, b) => Number(a.id) - Number(b.id));
   }, [data]);
 
+  // =========================================================================
+  // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
+  // =========================================================================
+  const loadData = useCallback(async () => {
+    if (!hasSiteParam) return;
+    setLoading(true);
+    setError(null);
+    setLoadProgress('연결 중...');
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
+
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const endpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/${siteId}`
+        : `${baseUrl}/rest/v1/${siteId}`;
+
+      // 서버 사이드 날짜 쿼리 파라미터 빌드
+      const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
+
+      let allData = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const to = from + PAGE_SIZE - 1;
+        setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
+
+        // PostgREST 날짜 필터(filterParams) 주입
+        const response = await fetch(
+          `${endpoint}?select=*&order=Date_Time.asc${filterParams}`,
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Range': `${from}-${to}`,
+              'Prefer': 'count=exact'
+            }
+          }
+        );
+
+        // 206 Partial Content 또는 200 OK 둘 다 처리
+        if (!response.ok && response.status !== 206) {
+          throw new Error(`Supabase fetch 실패: ${response.status} ${response.statusText}`);
+        }
+
+        const chunk = await response.json();
+
+        if (!Array.isArray(chunk) || chunk.length === 0) {
+          hasMore = false;
+        } else {
+          allData = allData.concat(chunk);
+          from += PAGE_SIZE;
+
+          // 반환된 건수가 PAGE_SIZE보다 적으면 마지막 페이지
+          if (chunk.length < PAGE_SIZE) {
+            hasMore = false;
+          }
+        }
+      }
+
+      setLoadProgress(`총 ${allData.length.toLocaleString()}건 로드 완료`);
+      const normalized = normalizeData(allData);
+      // 일반 사용자 뷰(isAdminParam이 false)라면 [MOCK TEST DATA]를 제외
+      const finalData = isAdminParam 
+        ? normalized 
+        : normalized.filter(item => item.Add_note !== "[MOCK TEST DATA]");
+      setData(finalData);
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [siteId, timeRange, customStart, customEnd, isAdminParam]);
+
   // 임계값 저장 API 호출 (Supabase PATCH)
   const saveSiteConfig = useCallback(async (updatedAlerts) => {
     try {
@@ -481,83 +558,6 @@ function App() {
       setAlertEmails(emails);
     }
   }, [isConfigModalOpen, isAdminParam, uniqueChannels, siteConfig]);
-
-  // =========================================================================
-  // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
-  // =========================================================================
-  const loadData = useCallback(async () => {
-    if (!hasSiteParam) return;
-    setLoading(true);
-    setError(null);
-    setLoadProgress('연결 중...');
-    try {
-      if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
-      }
-
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${siteId}`
-        : `${baseUrl}/rest/v1/${siteId}`;
-
-      // 서버 사이드 날짜 쿼리 파라미터 빌드
-      const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
-
-      let allData = [];
-      let from = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const to = from + PAGE_SIZE - 1;
-        setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
-
-        // PostgREST 날짜 필터(filterParams) 주입
-        const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.asc${filterParams}`,
-          {
-            headers: {
-              'apikey': SUPABASE_KEY,
-              'Authorization': `Bearer ${SUPABASE_KEY}`,
-              'Range': `${from}-${to}`,
-              'Prefer': 'count=exact'
-            }
-          }
-        );
-
-        // 206 Partial Content 또는 200 OK 둘 다 처리
-        if (!response.ok && response.status !== 206) {
-          throw new Error(`Supabase fetch 실패: ${response.status} ${response.statusText}`);
-        }
-
-        const chunk = await response.json();
-
-        if (!Array.isArray(chunk) || chunk.length === 0) {
-          hasMore = false;
-        } else {
-          allData = allData.concat(chunk);
-          from += PAGE_SIZE;
-
-          // 반환된 건수가 PAGE_SIZE보다 적으면 마지막 페이지
-          if (chunk.length < PAGE_SIZE) {
-            hasMore = false;
-          }
-        }
-      }
-
-      setLoadProgress(`총 ${allData.length.toLocaleString()}건 로드 완료`);
-      const normalized = normalizeData(allData);
-      // 일반 사용자 뷰(isAdminParam이 false)라면 [MOCK TEST DATA]를 제외
-      const finalData = isAdminParam 
-        ? normalized 
-        : normalized.filter(item => item.Add_note !== "[MOCK TEST DATA]");
-      setData(finalData);
-    } catch (err) {
-      console.error(err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [siteId, timeRange, customStart, customEnd, isAdminParam]);
 
   // 페이지 타이틀 동적 업데이트
   useEffect(() => {
