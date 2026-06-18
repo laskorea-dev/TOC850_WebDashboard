@@ -199,6 +199,7 @@ function App() {
   // 알림 기준값 설정 모달 상태
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [localAlerts, setLocalAlerts] = useState({});
+  const [alertEmails, setAlertEmails] = useState('');
 
   // =========================================================================
   // site_config 로드 함수 추가
@@ -316,14 +317,25 @@ function App() {
     }
   }, [siteId, loadSiteConfig]);
 
-  // 모달이 열릴 때 localAlerts 상태 동기화
+  // 모달이 열릴 때 localAlerts 및 alertEmails 상태 동기화
   useEffect(() => {
     if (isConfigModalOpen) {
       const initial = {};
       uniqueChannels.forEach(ch => {
         const configVal = siteConfig.toc_alert_high?.[ch.id] || siteConfig.toc_alert_high?.[String(ch.id)];
+        const chStr = String(ch.id);
         let caution = 5000;
         let warning = 6000;
+        if (chStr === '3') {
+          caution = 40;
+          warning = 50;
+        } else if (chStr === '2') {
+          caution = 900;
+          warning = 1000;
+        } else if (chStr === '1') {
+          caution = 1600;
+          warning = 2000;
+        }
         if (configVal !== undefined && configVal !== null) {
           if (typeof configVal === 'object' && !Array.isArray(configVal)) {
             caution = configVal.caution || 5000;
@@ -339,6 +351,9 @@ function App() {
         initial[ch.id] = { caution, warning };
       });
       setLocalAlerts(initial);
+      
+      const emails = siteConfig.toc_alert_high?.alert_emails || '';
+      setAlertEmails(emails);
     }
   }, [isConfigModalOpen, uniqueChannels, siteConfig]);
 
@@ -662,9 +677,21 @@ function App() {
 
   // 채널별 TOC 3단계 알림 경계값 및 상태 조회 유틸
   const getAlertStatus = useCallback((channel, value) => {
-    // 기본값 (5000 이상) 설정
+    // 기본값 설정
     let cautionLimit = 5000;
     let warningLimit = 6000;
+
+    const chStr = String(channel);
+    if (chStr === '3') { // 방류수
+      cautionLimit = 40;
+      warningLimit = 50;
+    } else if (chStr === '2') { // 1차처리수 (고농도조)
+      cautionLimit = 900;
+      warningLimit = 1000;
+    } else if (chStr === '1') { // 유입수 (원수조)
+      cautionLimit = 1600;
+      warningLimit = 2000;
+    }
 
     if (siteConfig && siteConfig.toc_alert_high) {
       const configVal = siteConfig.toc_alert_high[channel] || siteConfig.toc_alert_high[String(channel)];
@@ -1553,6 +1580,24 @@ function App() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* 이메일 알림 수신 설정 */}
+                  <div style={{ marginTop: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                      📧 알림 수신 이메일 주소
+                    </label>
+                    <input
+                      type="text"
+                      className="custom-select"
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      placeholder="알림을 받을 이메일 주소를 입력하세요 (여러 개일 경우 쉼표로 구분. 예: admin@test.com, manager@test.com)"
+                      value={alertEmails}
+                      onChange={(e) => setAlertEmails(e.target.value)}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
+                      계측기 데이터가 설정된 경고 임계값을 초과하면, 입력한 이메일로 경고 알림 메일이 즉시 발송됩니다.
+                    </span>
+                  </div>
                 </div>
 
                 <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
@@ -1561,17 +1606,21 @@ function App() {
                     let isValid = true;
                     uniqueChannels.forEach(ch => {
                       const lim = localAlerts[ch.id];
-                      if (lim && (lim.caution < 5000 || lim.warning < 5000)) {
+                      if (lim && (lim.caution < 0 || lim.warning < 0)) {
                         isValid = false;
                       }
                     });
                     if (!isValid) {
-                      if (!window.confirm("주의 또는 경고 기준값이 5000 미만인 채널이 존재합니다. 정말로 저장하시겠습니까?")) {
-                        return;
-                      }
+                      alert("주의 또는 경고 기준값은 0 이상이어야 합니다.");
+                      return;
                     }
 
-                    const success = await saveSiteConfig(localAlerts);
+                    const updatedConfig = {
+                      ...localAlerts,
+                      alert_emails: alertEmails
+                    };
+
+                    const success = await saveSiteConfig(updatedConfig);
                     if (success) {
                       setIsConfigModalOpen(false);
                     }
