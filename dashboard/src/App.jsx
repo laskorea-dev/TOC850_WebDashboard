@@ -201,6 +201,11 @@ function App() {
   const [localAlerts, setLocalAlerts] = useState({});
   const [alertEmails, setAlertEmails] = useState('');
 
+  // 시뮬레이션 데이터 및 제어 상태
+  const [simChannel, setSimChannel] = useState('3');
+  const [simToc, setSimToc] = useState('');
+  const [simIsSending, setSimIsSending] = useState(false);
+
   // =========================================================================
   // site_config 로드 함수 추가
   // =========================================================================
@@ -316,6 +321,115 @@ function App() {
       return false;
     }
   }, [siteId, loadSiteConfig]);
+
+  // 모의 데이터 생성 API (POST)
+  const insertMockData = useCallback(async () => {
+    if (simToc === '') {
+      alert("TOC 값을 입력해주세요.");
+      return;
+    }
+    const tocVal = parseFloat(simToc);
+    if (isNaN(tocVal) || tocVal < 0) {
+      alert("올바른 TOC 수치를 입력해주세요 (0 이상).");
+      return;
+    }
+
+    setSimIsSending(true);
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const endpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/${siteId}`
+        : `${baseUrl}/rest/v1/${siteId}`;
+
+      // 채널명 매핑
+      let channelName = `채널 ${simChannel}`;
+      if (simChannel === '1') channelName = "유입수";
+      else if (simChannel === '2') channelName = "1차처리수";
+      else if (simChannel === '3') channelName = "방류수";
+      else if (simChannel === '5') channelName = "test";
+
+      // 현재 시각 포맷: YYYY-MM-DD HH:mm:ss
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const formattedDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+      const payload = {
+        Date_Time: formattedDate,
+        Channel: parseInt(simChannel),
+        Channel_Name: channelName,
+        TOC_Conc: tocVal,
+        DilutionFactor: 1.0,
+        MSIG: 0.0,
+        Add_note: "[MOCK TEST DATA]"
+      };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        alert("모의 테스트 데이터가 성공적으로 적재되었습니다!");
+        setSimToc(''); // 입력 폼 리셋
+        loadData();    // 데이터 테이블 새로고침
+      } else {
+        const errData = await response.json();
+        throw new Error(errData.message || '데이터 적재 중 에러가 발생했습니다.');
+      }
+    } catch (err) {
+      console.error("모의 데이터 적재 실패:", err);
+      alert(`모의 데이터 적재 실패: ${err.message}`);
+    } finally {
+      setSimIsSending(false);
+    }
+  }, [simChannel, simToc, siteId, loadData]);
+
+  // 모의 데이터 일괄 삭제 API (DELETE)
+  const deleteMockData = useCallback(async () => {
+    if (!window.confirm("모의 테스트용으로 입력된 [MOCK TEST DATA] 항목을 모두 삭제하시겠습니까?")) {
+      return;
+    }
+    setSimIsSending(true);
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const endpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/${siteId}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D`
+        : `${baseUrl}/rest/v1/${siteId}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D`;
+
+      const response = await fetch(endpoint, {
+        method: 'DELETE',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        }
+      });
+
+      if (response.ok) {
+        alert("모든 모의 테스트 데이터가 일괄 삭제되었습니다!");
+        loadData(); // 데이터 테이블 새로고침
+      } else {
+        const err = await response.json();
+        throw new Error(err.message || '데이터 삭제 중 에러가 발생했습니다.');
+      }
+    } catch (err) {
+      console.error("모의 데이터 삭제 실패:", err);
+      alert(`모의 데이터 삭제 실패: ${err.message}`);
+    } finally {
+      setSimIsSending(false);
+    }
+  }, [siteId, loadData]);
 
   // 모달이 열릴 때 localAlerts 및 alertEmails 상태 동기화
   useEffect(() => {
@@ -1597,6 +1711,93 @@ function App() {
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
                       계측기 데이터가 설정된 경고 임계값을 초과하면, 입력한 이메일로 경고 알림 메일이 즉시 발송됩니다.
                     </span>
+                  </div>
+
+                  {/* ============================================ */}
+                  {/* 관리자 모니터링 시뮬레이션 및 테스트 패널      */}
+                  {/* ============================================ */}
+                  <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed var(--border-color)' }}>
+                    <h4 style={{ margin: '0 0 12px 0', fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>🛠️ 관리자 테스트 샌드박스 (Simulation)</h4>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      {/* TOC 데이터 시뮬레이터 */}
+                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '8px', color: 'var(--text-main)' }}>📈 모의 데이터 수동 적재</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <select
+                            className="custom-select"
+                            style={{ fontSize: '0.78rem', padding: '4px', width: '100%' }}
+                            value={simChannel}
+                            onChange={(e) => setSimChannel(e.target.value)}
+                          >
+                            {uniqueChannels.map(ch => (
+                              <option key={ch.id} value={ch.id}>{ch.name} (Ch {ch.id})</option>
+                            ))}
+                          </select>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <input
+                              type="number"
+                              className="custom-select"
+                              style={{ flex: 1, padding: '6px 8px', fontSize: '0.78rem' }}
+                              placeholder="TOC 농도 (ppm)"
+                              value={simToc}
+                              onChange={(e) => setSimToc(e.target.value)}
+                            />
+                            <button
+                              className="sim-btn"
+                              style={{ fontSize: '0.75rem', padding: '4px 8px', minWidth: '50px' }}
+                              onClick={insertMockData}
+                              disabled={simIsSending}
+                            >
+                              {simIsSending ? '전송...' : '입력'}
+                            </button>
+                          </div>
+                          <button
+                            className="filter-btn"
+                            style={{ fontSize: '0.72rem', padding: '6px', width: '100%', color: 'var(--accent-rose)', borderColor: 'rgba(239, 68, 68, 0.3)', marginTop: '4px' }}
+                            onClick={deleteMockData}
+                            disabled={simIsSending}
+                          >
+                            테스트 데이터 일괄 삭제 🗑️
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 이메일 알림 수신 테스트 */}
+                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'var(--text-main)' }}>✉️ 알림 메일 즉시 발송 테스트</span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', lineHeight: '1.4' }}>
+                            버튼을 누르면 로컬의 파이썬 업로더가 신호를 감지하여 현재 등록된 수신인 주소로 테스트 메일을 즉시 발송합니다.
+                          </span>
+                        </div>
+                        <button
+                          className="sim-btn"
+                          style={{ fontSize: '0.75rem', padding: '8px', width: '100%', marginTop: '12px' }}
+                          onClick={async () => {
+                            if (!alertEmails) {
+                              alert("알림을 수신할 이메일 주소를 먼저 설정하고 저장해 주세요.");
+                              return;
+                            }
+                            if (!window.confirm("현재 수신처로 테스트 메일 전송 요청을 전달하시겠습니까?\n(로컬의 파이썬 업로더가 켜져 있어야 메일이 발송됩니다.)")) {
+                              return;
+                            }
+                            // 웹 설정 파일에 trigger_test_email: true 상태를 추가해 Supabase에 PATCH 전송
+                            const updatedConfig = {
+                              ...localAlerts,
+                              alert_emails: alertEmails,
+                              trigger_test_email: true
+                            };
+                            const success = await saveSiteConfig(updatedConfig);
+                            if (success) {
+                              alert("이메일 발송 신호가 Supabase에 정상 등록되었습니다.\n로컬 업로더가 실시간 감지하여 테스트 이메일을 발송합니다.");
+                            }
+                          }}
+                        >
+                          테스트 메일 발송 🚀
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 

@@ -57,6 +57,7 @@ class GUIUploaderApp:
         self.last_query = "N/A"
         self.is_paused = False
         self.last_alert_time = {}
+        self.check_config_timer = 0
         self.is_mock = True  # 기본값 mock
         self.supabase_url = ""
         self.supabase_key = ""
@@ -482,6 +483,13 @@ class GUIUploaderApp:
                     text="자동 동기화 일시정지 상태"
                 )
             
+            # 10초마다 Supabase 설정에서 원격 테스트 메일 트리거 감지
+            self.check_config_timer += 1
+            if self.check_config_timer >= 10:
+                self.check_config_timer = 0
+                if self.supabase_url and self.supabase_key and not self.is_mock:
+                    threading.Thread(target=self.bg_check_test_email_trigger, daemon=True).start()
+
             self.root.after(1000, tick)
         
         tick()
@@ -903,6 +911,102 @@ class GUIUploaderApp:
                 if success:
                     # 메일 전송 성공 시 쿨다운 타임 업데이트
                     self.last_alert_time[channel_id] = now_time
+
+    def bg_check_test_email_trigger(self):
+        """Supabase 설정을 GET 하여 trigger_test_email 플래그가 참인지 확인하고, 참이면 메일을 발송한 뒤 플래그를 내립니다."""
+        config_data = self.fetch_site_config()
+        if not config_data:
+            return
+            
+        toc_alert_high = config_data.get("toc_alert_high")
+        if isinstance(toc_alert_high, str):
+            try:
+                toc_alert_high = json.loads(toc_alert_high)
+            except Exception:
+                pass
+                
+        if not isinstance(toc_alert_high, dict):
+            return
+            
+        trigger = toc_alert_high.get("trigger_test_email", False)
+        if trigger:
+            self.msg_queue.put(("log", "[알림 메일 테스트] 웹으로부터 테스트 메일 발송 신호를 감지했습니다!"))
+            alert_emails = toc_alert_high.get("alert_emails", "")
+            
+            if not alert_emails:
+                self.msg_queue.put(("log", "[알림 메일 테스트 실패] 수신인 이메일 주소가 비어있습니다."))
+            else:
+                site_name = config_data.get("site_name", self.device_id)
+                subject = f"[TOC 모의 테스트 메일] {site_name} 알림 발송 검증"
+                body = f"""
+                <html>
+                <body style="font-family: 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                        <div style="background-color: #3b82f6; color: white; padding: 20px; text-align: center;">
+                            <h2 style="margin: 0; font-size: 1.5rem;">✉️ TOC 이메일 연동 테스트 성공</h2>
+                        </div>
+                        <div style="padding: 24px; background-color: #fff;">
+                            <p style="font-size: 0.95rem; font-weight: bold; color: #3b82f6;">
+                                웹 설정 화면에서 요청하신 이메일 즉시 발송 검증이 완료되었습니다!
+                            </p>
+                            <p>이 이메일이 수신함에 정상 도착했다면, <b>계측기 로컬 SMTP 메일 서버와 Supabase 클라우드 간의 연동이 완벽하게 완료</b>된 것입니다.</p>
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.9rem;">
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold; width: 30%;">테스트 사이트</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{site_name}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">발신 계정 (SMTP)</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{self.smtp_user} ({self.smtp_server})</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">수신인 목록</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{alert_emails}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">테스트 시간</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</td>
+                                </tr>
+                            </table>
+                            <p style="margin-top: 24px; font-size: 0.82rem; color: #64748b;">
+                                * 향후 계측 데이터의 TOC 농도가 경고 설정값을 초과하는 위급 상황이 발생하면 본 수신처 목록으로 긴급 알림 메일이 즉시 자동 전송됩니다.
+                            </p>
+                        </div>
+                        <div style="background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 0.8rem; color: #94a3b8;">
+                            LAS KOREA 온라인 계측 모니터링 시스템
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """
+                # 메일 쏘기
+                self.send_alert_email(alert_emails, subject, body)
+                
+            # 메일 발송 후 DB 플래그 원상 복구 (trigger_test_email: False)
+            try:
+                toc_alert_high["trigger_test_email"] = False
+                base_url = self.supabase_url.rstrip('/')
+                if "/rest/v1" in base_url:
+                    config_url = f"{base_url}/850_dashboard_site_config?site_id=eq.{self.device_id}"
+                else:
+                    config_url = f"{base_url}/rest/v1/850_dashboard_site_config?site_id=eq.{self.device_id}"
+                    
+                req = urllib.request.Request(
+                    config_url,
+                    data=json.dumps({"toc_alert_high": toc_alert_high}).encode('utf-8'),
+                    headers={
+                        "apikey": self.supabase_key,
+                        "Authorization": f"Bearer {self.supabase_key}",
+                        "Content-Type": "application/json",
+                        "Prefer": "return=minimal"
+                    },
+                    method="PATCH"
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    if resp.status in [200, 201, 204]:
+                        self.msg_queue.put(("log", "[알림 메일 테스트 완료] 웹의 테스트 발송 신호 플래그가 비활성화되었습니다."))
+            except Exception as patch_ex:
+                self.msg_queue.put(("log", f"[테스트 플래그 초기화 실패] 오류: {patch_ex}"))
 
     # =========================================================================
     # QUEUE MESSAGE LISTENER (UI Thread)
