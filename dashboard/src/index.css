@@ -865,6 +865,18 @@ body {
   animation: pulse-red 1.8s infinite ease-in-out;
 }
 
+.alert-dot.warning {
+  background-color: var(--accent-rose);
+  box-shadow: 0 0 6px var(--accent-rose);
+  animation: pulse-red 1.8s infinite ease-in-out;
+}
+
+.alert-dot.caution {
+  background-color: var(--accent-yellow, #eab308);
+  box-shadow: 0 0 6px var(--accent-yellow, #eab308);
+  animation: pulse-yellow 1.8s infinite ease-in-out;
+}
+
 @keyframes pulse-red {
   0% {
     transform: scale(0.9);
@@ -880,6 +892,21 @@ body {
   }
 }
 
+@keyframes pulse-yellow {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.6);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 6px rgba(234, 179, 8, 0);
+  }
+  100% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 rgba(234, 179, 8, 0);
+  }
+}
+
 .row-alert {
   background: rgba(239, 68, 68, 0.04) !important;
   border-left: 2px solid var(--accent-rose);
@@ -887,6 +914,15 @@ body {
 
 .row-alert:hover {
   background: rgba(239, 68, 68, 0.08) !important;
+}
+
+.row-caution {
+  background: rgba(234, 179, 8, 0.04) !important;
+  border-left: 2px solid var(--accent-yellow, #eab308);
+}
+
+.row-caution:hover {
+  background: rgba(234, 179, 8, 0.08) !important;
 }
 
 @keyframes spin {
