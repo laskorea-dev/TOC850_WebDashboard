@@ -295,7 +295,9 @@ function App() {
       }
     }
 
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => Number(a.id) - Number(b.id));
   }, [data]);
 
   // 임계값 저장 API 호출 (Supabase PATCH)
