@@ -14,5 +14,6 @@
     "smtp_port": 587,
     "smtp_user": "alert-sender@gmail.com",
     "smtp_password": "your-app-password",
-    "smtp_use_tls": true
+    "smtp_use_tls": true,
+    "alert_type": "email"
 }
