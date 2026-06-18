@@ -819,31 +819,25 @@ class GUIUploaderApp:
             date_time = rec.get("Date_Time", "")
 
             # 2. 임계값(경고치) 확인
-            caution_limit = 5000.0
             warning_limit = 6000.0
 
             # 채널별 요구사항 기반 초기값(폴백) 설정
             if channel_id == "3":  # 방류수
-                caution_limit = 40.0
                 warning_limit = 50.0
             elif channel_id == "2":  # 1차처리수 (고농도조 유력)
-                caution_limit = 900.0
                 warning_limit = 1000.0
             elif channel_id == "1":  # 유입수 (원수조 유력)
-                caution_limit = 1600.0
                 warning_limit = 2000.0
 
             # DB 로드 값 적용
             ch_config = toc_alert_high.get(channel_id)
             if ch_config:
                 if isinstance(ch_config, dict):
-                    caution_limit = float(ch_config.get("caution", caution_limit))
                     warning_limit = float(ch_config.get("warning", warning_limit))
                 else:
                     # 구버전 단일 숫자 형태 대응
                     try:
                         warning_limit = float(ch_config)
-                        caution_limit = min(caution_limit, warning_limit * 0.8)
                     except ValueError:
                         pass
 
@@ -887,10 +881,6 @@ class GUIUploaderApp:
                                 <tr>
                                     <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">경고 설정치</td>
                                     <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{warning_limit} ppm</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; font-weight: bold;">주의 설정치</td>
-                                    <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{caution_limit} ppm</td>
                                 </tr>
                             </table>
                             <p style="margin-top: 24px; font-size: 0.82rem; color: #64748b;">
