@@ -119,22 +119,35 @@ const getDateFilterParams = (range, start, end) => {
 };
 
 function App() {
-  // URL 파라미터 ?site= 존재 여부 분석
+  // URL 파라미터 ?site= 존재 여부 분석 (비표준 ?admin?site=... 및 표준 ?admin&site=... 형식 대응)
   const hasSiteParam = useMemo(() => {
     if (typeof window === 'undefined') return false;
-    const searchParams = new URLSearchParams(window.location.search);
-    const siteVal = searchParams.get('site');
-    return siteVal !== null && siteVal.trim() !== '';
+    const search = window.location.search;
+    return search.toLowerCase().includes('site=');
   }, []);
 
   // URL 파라미터 ?site= 에서 사이트 아이디(테이블명) 파싱, 없을 경우 폴백
   const siteId = useMemo(() => {
     if (typeof window === 'undefined') return SUPABASE_TABLE;
-    const searchParams = new URLSearchParams(window.location.search);
-    return searchParams.get('site') || SUPABASE_TABLE;
+    const search = window.location.search;
+    // site=지점명 패턴 검색
+    const match = search.match(/[?&]site=([^&?]+)/i);
+    if (match) return match[1];
+    const fallbackMatch = search.match(/site=([^&?]+)/i);
+    if (fallbackMatch) return fallbackMatch[1];
+    return SUPABASE_TABLE;
+  }, []);
+
+  // 관리자 모드 여부 분석 (?admin 파라미터 존재 여부)
+  const isAdminParam = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.location.search.toLowerCase().includes('admin');
   }, []);
 
   const [data, setData] = useState([]);
+  const adminSortedData = useMemo(() => {
+    return [...data].sort((a, b) => parseDate(b.Date_Time) - parseDate(a.Date_Time));
+  }, [data]);
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState('');
   const [error, setError] = useState(null);
@@ -431,9 +444,9 @@ function App() {
     }
   }, [siteId, loadData]);
 
-  // 모달이 열릴 때 localAlerts 및 alertEmails 상태 동기화
+  // 모달이 열리거나 관리자 설정 페이지에 진입할 때 localAlerts 및 alertEmails 상태 동기화
   useEffect(() => {
-    if (isConfigModalOpen) {
+    if (isConfigModalOpen || isAdminParam) {
       const initial = {};
       uniqueChannels.forEach(ch => {
         const configVal = siteConfig.toc_alert_high?.[ch.id] || siteConfig.toc_alert_high?.[String(ch.id)];
@@ -469,7 +482,7 @@ function App() {
       const emails = siteConfig.toc_alert_high?.alert_emails || '';
       setAlertEmails(emails);
     }
-  }, [isConfigModalOpen, uniqueChannels, siteConfig]);
+  }, [isConfigModalOpen, isAdminParam, uniqueChannels, siteConfig]);
 
   // =========================================================================
   // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
@@ -535,14 +548,18 @@ function App() {
 
       setLoadProgress(`총 ${allData.length.toLocaleString()}건 로드 완료`);
       const normalized = normalizeData(allData);
-      setData(normalized);
+      // 일반 사용자 뷰(isAdminParam이 false)라면 [MOCK TEST DATA]를 제외
+      const finalData = isAdminParam 
+        ? normalized 
+        : normalized.filter(item => item.Add_note !== "[MOCK TEST DATA]");
+      setData(finalData);
     } catch (err) {
       console.error(err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [siteId, timeRange, customStart, customEnd]);
+  }, [siteId, timeRange, customStart, customEnd, isAdminParam]);
 
   // 페이지 타이틀 동적 업데이트
   useEffect(() => {
@@ -898,7 +915,17 @@ function App() {
         return;
       }
 
-      const targetData = normalizeData(allData);
+      let targetData = normalizeData(allData);
+      // 일반 사용자 뷰(isAdminParam이 false)라면 [MOCK TEST DATA]를 제외
+      if (!isAdminParam) {
+        targetData = targetData.filter(r => r.Add_note !== "[MOCK TEST DATA]");
+      }
+
+      if (targetData.length === 0) {
+        alert('테스트 데이터를 제외하고 나니 다운로드할 실제 데이터가 존재하지 않습니다.');
+        return;
+      }
+
       // 최신 데이터를 먼저 보기 위해 내림차순 정렬 후 CSV 내보내기
       targetData.sort((a, b) => parseDate(b.Date_Time) - parseDate(a.Date_Time));
 
@@ -927,7 +954,7 @@ function App() {
       setLoading(false);
       setLoadProgress('');
     }
-  }, [siteId, csvRangeType, csvCustomStart, csvCustomEnd]);
+  }, [siteId, csvRangeType, csvCustomStart, csvCustomEnd, isAdminParam]);
 
   // 테이블 페이징
   const totalPages = Math.ceil(tableFilteredData.length / itemsPerPage);
@@ -1063,6 +1090,307 @@ function App() {
             대시보드 접속 🔑
           </button>
         </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // 관리자 테스트 샌드박스 페이지 분기
+  // =========================================================================
+  if (isAdminParam) {
+    const handleReturnToDashboard = () => {
+      const cleanSearch = siteId ? `?site=${siteId}` : '';
+      window.location.href = window.location.pathname + cleanSearch;
+    };
+
+    return (
+      <div className="dashboard-container">
+        {/* ADMIN HEADER */}
+        <header className="dashboard-header">
+          <div className="header-title-section">
+            <h1 className="text-gradient-cyan-purple" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span>🛠️</span> 관리자 테스트 및 설정 제어 센터
+            </h1>
+            <p>지점 ID: <strong>{siteConfig.site_id}</strong> ({siteConfig.site_name}) · 총 {data.length.toLocaleString()}건의 데이터 수집됨</p>
+          </div>
+          <div className="header-controls" style={{ display: 'flex', gap: '8px' }}>
+            <button className="filter-btn active" onClick={handleReturnToDashboard}>
+              🖥️ 메인 대시보드로 가기
+            </button>
+            <button className="filter-btn" onClick={loadData}>
+              {loading ? '로딩 중...' : '새로고침 🔄'}
+            </button>
+          </div>
+        </header>
+
+        {/* ADMIN CONTROLS GRID */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
+          
+          {/* CARD 1: 알림 임계값 및 이메일 설정 */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>⚙️</span> 알림 임계값 및 이메일 관리
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+              각 채널별 평시, 주의(노랑), 경고(빨강) 임계치(ppm) 및 수신 이메일 리스트를 제어합니다.
+            </p>
+
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uniqueChannels.map(ch => {
+                    const alertLimits = localAlerts[ch.id] || { caution: 5000, warning: 6000 };
+                    return (
+                      <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td style={{ padding: '10px', fontWeight: 600 }}>
+                          {ch.name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>(Ch {ch.id})</span>
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <input
+                            type="number"
+                            className="custom-select"
+                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                            value={alertLimits.caution}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setLocalAlerts(prev => ({
+                                ...prev,
+                                [ch.id]: { ...prev[ch.id], caution: val }
+                              }));
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <input
+                            type="number"
+                            className="custom-select"
+                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                            value={alertLimits.warning}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setLocalAlerts(prev => ({
+                                ...prev,
+                                [ch.id]: { ...prev[ch.id], warning: val }
+                              }));
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                📧 알림 수신 이메일 주소
+              </label>
+              <input
+                type="text"
+                className="custom-select"
+                style={{ width: '100%', padding: '10px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                placeholder="알림을 받을 이메일 주소 입력 (쉼표 구분)"
+                value={alertEmails}
+                onChange={(e) => setAlertEmails(e.target.value)}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                경고 기준치 초과 시 입력한 메일 주소로 알림이 자동 전송됩니다.
+              </span>
+            </div>
+
+            <button
+              className="sim-btn"
+              style={{ width: '100%', padding: '12px', fontSize: '0.9rem' }}
+              onClick={async () => {
+                let isValid = true;
+                uniqueChannels.forEach(ch => {
+                  const lim = localAlerts[ch.id];
+                  if (lim && (lim.caution < 0 || lim.warning < 0)) {
+                    isValid = false;
+                  }
+                });
+                if (!isValid) {
+                  alert("주의 또는 경고 기준값은 0 이상이어야 합니다.");
+                  return;
+                }
+
+                const updatedConfig = {
+                  ...localAlerts,
+                  alert_emails: alertEmails
+                };
+
+                await saveSiteConfig(updatedConfig);
+              }}
+            >
+              설정 저장 💾
+            </button>
+          </div>
+
+          {/* CARD 2: 시뮬레이션 및 데이터 주입 */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>🚀</span> 모의 테스트 샌드박스 (Simulation)
+            </h3>
+            
+            {/* 1. 모의 데이터 수동 적재 */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '12px' }}>📈 모의 데이터 수동 적재</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
+                  <select
+                    className="custom-select"
+                    style={{ fontSize: '0.85rem', padding: '10px' }}
+                    value={simChannel}
+                    onChange={(e) => setSimChannel(e.target.value)}
+                  >
+                    {uniqueChannels.map(ch => (
+                      <option key={ch.id} value={ch.id}>{ch.name} (Ch {ch.id})</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    className="custom-select"
+                    style={{ padding: '10px', fontSize: '0.85rem' }}
+                    placeholder="TOC 농도 (ppm)"
+                    value={simToc}
+                    onChange={(e) => setSimToc(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+                  <button
+                    className="sim-btn"
+                    style={{ padding: '10px', fontSize: '0.85rem' }}
+                    onClick={insertMockData}
+                    disabled={simIsSending}
+                  >
+                    {simIsSending ? '적재 중...' : '모의 데이터 적재 🚀'}
+                  </button>
+                  <button
+                    className="filter-btn"
+                    style={{ padding: '10px', fontSize: '0.85rem', color: 'var(--accent-rose)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                    onClick={deleteMockData}
+                    disabled={simIsSending}
+                  >
+                    일괄 삭제 🗑️
+                  </button>
+                </div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                  * 적재된 모의 데이터는 `[MOCK TEST DATA]` 주석이 매립되며, 메인 사용자 대시보드 화면에서는 자동으로 필터링 처리되어 보이지 않습니다.
+                </span>
+              </div>
+            </div>
+
+            {/* 2. 이메일 수신 즉시 테스트 */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyBetween: 'space-between', gap: '12px' }}>
+              <div>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>✉️ 알림 메일 즉시 발송 테스트</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', lineHeight: '1.4' }}>
+                  현재 입력된 알림 수신 이메일 주소 목록으로 로컬 파이썬 업로더를 경유하여 테스트 메일을 전송합니다. (업로더 프로그램이 기동 중이어야 발송을 수신합니다.)
+                </span>
+              </div>
+              <button
+                className="sim-btn"
+                style={{ width: '100%', padding: '10px', fontSize: '0.85rem' }}
+                onClick={async () => {
+                  if (!alertEmails) {
+                    alert("알림을 수신할 이메일 주소를 먼저 설정하고 저장해 주세요.");
+                    return;
+                  }
+                  if (!window.confirm("현재 수신처로 테스트 메일 전송 요청을 전달하시겠습니까?\n(로컬의 파이썬 업로더가 켜져 있어야 메일이 발송됩니다.)")) {
+                    return;
+                  }
+                  const updatedConfig = {
+                    ...localAlerts,
+                    alert_emails: alertEmails,
+                    trigger_test_email: true
+                  };
+                  const success = await saveSiteConfig(updatedConfig);
+                  if (success) {
+                    alert("이메일 발송 신호가 Supabase에 정상 등록되었습니다.\n로컬 업로더가 실시간 감지하여 테스트 이메일을 발송합니다.");
+                  }
+                }}
+              >
+                테스트 메일 발송 신호 전송 ✉️
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION 3: 실시간 수집 데이터 로그 (모의 데이터 포함) */}
+        <section className="glass-card" style={{ marginTop: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>
+              📊 수집 데이터 현황 (모의 테스트 데이터 포함)
+            </h3>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              붉은색 테두리 표시 행은 샌드박스로 입력된 모의 데이터([MOCK TEST DATA])입니다.
+            </span>
+          </div>
+
+          <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                  <th style={{ padding: '12px 16px', textAlign: 'left' }}>수집 시간</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left' }}>장비 식별자 (Device ID)</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left' }}>채널명 (Channel)</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>TOC 수치 (ppm)</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left' }}>상태</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left' }}>비고 (Add Note)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adminSortedData.slice(0, 15).map((item, idx) => {
+                  const isMock = item.Add_note === "[MOCK TEST DATA]";
+                  const { status } = getAlertStatus(item.Channel, item.TOC_Conc);
+                  let statusBadge = <span style={{ color: 'var(--text-muted)' }}>● 정상</span>;
+                  if (status === 'warning') {
+                    statusBadge = <span style={{ color: 'var(--accent-rose)', fontWeight: 700 }}>● 경고 (Warning)</span>;
+                  } else if (status === 'caution') {
+                    statusBadge = <span style={{ color: 'var(--accent-amber)', fontWeight: 700 }}>● 주의 (Caution)</span>;
+                  }
+
+                  return (
+                    <tr 
+                      key={idx} 
+                      style={{ 
+                        borderBottom: '1px solid var(--border-color)',
+                        background: isMock ? 'rgba(239, 68, 68, 0.05)' : 'transparent',
+                        outline: isMock ? '1px dashed rgba(239, 68, 68, 0.4)' : 'none'
+                      }}
+                    >
+                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{item.Date_Time}</td>
+                      <td style={{ padding: '12px 16px' }}><code>{item.Device_ID}</code></td>
+                      <td style={{ padding: '12px 16px', fontWeight: 600 }}>{item.Channel_Name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>(Ch {item.Channel})</span></td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '0.92rem' }}>
+                        {item.TOC_Conc !== undefined ? item.TOC_Conc.toFixed(2) : '-'}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>{statusBadge}</td>
+                      <td style={{ padding: '12px 16px', color: isMock ? 'var(--accent-rose)' : 'var(--text-muted)', fontWeight: isMock ? 600 : 400 }}>
+                        {item.Add_note || '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {data.length === 0 && (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                      최근 수집된 데이터가 없습니다.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     );
   }
@@ -1713,92 +2041,6 @@ function App() {
                     </span>
                   </div>
 
-                  {/* ============================================ */}
-                  {/* 관리자 모니터링 시뮬레이션 및 테스트 패널      */}
-                  {/* ============================================ */}
-                  <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed var(--border-color)' }}>
-                    <h4 style={{ margin: '0 0 12px 0', fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)' }}>🛠️ 관리자 테스트 샌드박스 (Simulation)</h4>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                      {/* TOC 데이터 시뮬레이터 */}
-                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '8px', color: 'var(--text-main)' }}>📈 모의 데이터 수동 적재</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          <select
-                            className="custom-select"
-                            style={{ fontSize: '0.78rem', padding: '4px', width: '100%' }}
-                            value={simChannel}
-                            onChange={(e) => setSimChannel(e.target.value)}
-                          >
-                            {uniqueChannels.map(ch => (
-                              <option key={ch.id} value={ch.id}>{ch.name} (Ch {ch.id})</option>
-                            ))}
-                          </select>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <input
-                              type="number"
-                              className="custom-select"
-                              style={{ flex: 1, padding: '6px 8px', fontSize: '0.78rem' }}
-                              placeholder="TOC 농도 (ppm)"
-                              value={simToc}
-                              onChange={(e) => setSimToc(e.target.value)}
-                            />
-                            <button
-                              className="sim-btn"
-                              style={{ fontSize: '0.75rem', padding: '4px 8px', minWidth: '50px' }}
-                              onClick={insertMockData}
-                              disabled={simIsSending}
-                            >
-                              {simIsSending ? '전송...' : '입력'}
-                            </button>
-                          </div>
-                          <button
-                            className="filter-btn"
-                            style={{ fontSize: '0.72rem', padding: '6px', width: '100%', color: 'var(--accent-rose)', borderColor: 'rgba(239, 68, 68, 0.3)', marginTop: '4px' }}
-                            onClick={deleteMockData}
-                            disabled={simIsSending}
-                          >
-                            테스트 데이터 일괄 삭제 🗑️
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* 이메일 알림 수신 테스트 */}
-                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                        <div>
-                          <span style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'var(--text-main)' }}>✉️ 알림 메일 즉시 발송 테스트</span>
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', lineHeight: '1.4' }}>
-                            버튼을 누르면 로컬의 파이썬 업로더가 신호를 감지하여 현재 등록된 수신인 주소로 테스트 메일을 즉시 발송합니다.
-                          </span>
-                        </div>
-                        <button
-                          className="sim-btn"
-                          style={{ fontSize: '0.75rem', padding: '8px', width: '100%', marginTop: '12px' }}
-                          onClick={async () => {
-                            if (!alertEmails) {
-                              alert("알림을 수신할 이메일 주소를 먼저 설정하고 저장해 주세요.");
-                              return;
-                            }
-                            if (!window.confirm("현재 수신처로 테스트 메일 전송 요청을 전달하시겠습니까?\n(로컬의 파이썬 업로더가 켜져 있어야 메일이 발송됩니다.)")) {
-                              return;
-                            }
-                            // 웹 설정 파일에 trigger_test_email: true 상태를 추가해 Supabase에 PATCH 전송
-                            const updatedConfig = {
-                              ...localAlerts,
-                              alert_emails: alertEmails,
-                              trigger_test_email: true
-                            };
-                            const success = await saveSiteConfig(updatedConfig);
-                            if (success) {
-                              alert("이메일 발송 신호가 Supabase에 정상 등록되었습니다.\n로컬 업로더가 실시간 감지하여 테스트 이메일을 발송합니다.");
-                            }
-                          }}
-                        >
-                          테스트 메일 발송 🚀
-                        </button>
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
                 <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
