@@ -560,6 +560,30 @@ class GUIUploaderApp:
         pw_ent = tk.Entry(self.adv_frame, textvariable=self.smtp_pw_var, show="*", font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
         pw_ent.grid(row=11, column=1, sticky=tk.EW, ipady=3)
 
+    def make_supabase_request(self, url, data=None, headers=None, method="GET", timeout=30, max_retries=3):
+        """Supabase API 요청을 재시도(Retry) 및 충분한 타임아웃과 함께 수행합니다."""
+        last_exception = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers=headers or {},
+                    method=method
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    status = response.status
+                    body = response.read()
+                    return status, body
+            except Exception as e:
+                last_exception = e
+                # SSL 핸드쉐이크 타임아웃이나 일반 커넥션 타임아웃 시 재시도 진행
+                self.msg_queue.put(("log", f"[네트워크 시도 {attempt}/{max_retries}] 오류 발생으로 재시도합니다: {e}"))
+                time.sleep(1.5)
+        
+        # 모든 시도가 실패했을 때 예외 발생
+        raise last_exception
+
     def bg_update_site_name_on_supabase(self, site_id, site_name, supabase_url, supabase_key):
         """Supabase site_config_v2의 site_name 컬럼을 백그라운드에서 PATCH로 비동기 업데이트합니다."""
         if not supabase_url or not supabase_key:
@@ -575,20 +599,15 @@ class GUIUploaderApp:
                 "site_name": site_name
             }
             data_bytes = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(
-                config_url,
-                data=data_bytes,
-                headers={
-                    "apikey": supabase_key,
-                    "Authorization": f"Bearer {supabase_key}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal"
-                },
-                method="PATCH"
-            )
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status in [200, 201, 204]:
-                    self.msg_queue.put(("log", f"[원격 설정 갱신] Supabase 지점 한글명이 '{site_name}'으로 실시간 업데이트되었습니다."))
+            headers = {
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {supabase_key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            }
+            status, _ = self.make_supabase_request(config_url, data=data_bytes, headers=headers, method="PATCH", timeout=30)
+            if status in [200, 201, 204]:
+                self.msg_queue.put(("log", f"[원격 설정 갱신] Supabase 지점 한글명이 '{site_name}'으로 실시간 업데이트되었습니다."))
         except Exception as e:
             self.msg_queue.put(("log", f"[원격 설정 갱신 오류] Supabase 사이트 한글명 업데이트 실패: {e}"))
 
@@ -874,21 +893,16 @@ class GUIUploaderApp:
             
             req_url += f"?select=Date_Time&Site_ID=eq.{urllib.parse.quote(self.site_id)}&order=Date_Time.desc&limit=1"
             
-            req = urllib.request.Request(
-                req_url,
-                headers={
-                    "apikey": self.supabase_key,
-                    "Authorization": f"Bearer {self.supabase_key}",
-                    "Content-Type": "application/json"
-                },
-                method="GET"
-            )
-            
-            with urllib.request.urlopen(req, timeout=8) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                if data and len(data) > 0:
-                    return data[0]["Date_Time"]
-                return None
+            headers = {
+                "apikey": self.supabase_key,
+                "Authorization": f"Bearer {self.supabase_key}",
+                "Content-Type": "application/json"
+            }
+            status, body = self.make_supabase_request(req_url, headers=headers, method="GET", timeout=30)
+            data = json.loads(body.decode('utf-8'))
+            if data and len(data) > 0:
+                return data[0]["Date_Time"]
+            return None
         except Exception as e:
             self.msg_queue.put(("log", f"[서버 조회 오류] 최신 데이터 시각 확인 실패: {e}"))
             return None
@@ -1036,32 +1050,24 @@ class GUIUploaderApp:
                 req_url = f"{base_url}/rest/v1/{self.supabase_table}"
                 
             data_bytes = json.dumps(json_payload).encode('utf-8')
-            
-            req = urllib.request.Request(
-                req_url,
-                data=data_bytes,
-                headers={
-                    "apikey": self.supabase_key,
-                    "Authorization": f"Bearer {self.supabase_key}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal, resolution=ignore-duplicates"
-                },
-                method="POST"
-            )
-            
-            with urllib.request.urlopen(req, timeout=8) as response:
-                status = response.status
-                if status in [200, 201, 204]:
-                    self.msg_queue.put(("log", f"[Supabase 전송 대성공!] 기기 ID '{self.device_id}' 신규 데이터 {len(rows)}건이 실시간 PostgreSQL 클라우드에 적재 완료되었습니다!"))
-                    # 실시간 경고 검사 및 메일 전송
-                    try:
-                        self.check_and_send_alerts(json_payload)
-                    except Exception as ex:
-                        self.msg_queue.put(("log", f"[알림 이메일 검사 오류] {ex}"))
-                    return True
-                else:
-                    self.msg_queue.put(("log", f"[Supabase 전송 실패] 서버 상태 코드: {status}"))
-                    return False
+            headers = {
+                "apikey": self.supabase_key,
+                "Authorization": f"Bearer {self.supabase_key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal, resolution=ignore-duplicates"
+            }
+            status, _ = self.make_supabase_request(req_url, data=data_bytes, headers=headers, method="POST", timeout=30)
+            if status in [200, 201, 204]:
+                self.msg_queue.put(("log", f"[Supabase 전송 대성공!] 기기 ID '{self.device_id}' 신규 데이터 {len(rows)}건이 실시간 PostgreSQL 클라우드에 적재 완료되었습니다!"))
+                # 실시간 경고 검사 및 메일 전송
+                try:
+                    self.check_and_send_alerts(json_payload)
+                except Exception as ex:
+                    self.msg_queue.put(("log", f"[알림 이메일 검사 오류] {ex}"))
+                return True
+            else:
+                self.msg_queue.put(("log", f"[Supabase 전송 실패] 서버 상태 코드: {status}"))
+                return False
         except Exception as e:
             self.msg_queue.put(("log", f"[Supabase API 연결 오류] 호스트 연결 실패: {e}"))
             return False
@@ -1093,24 +1099,18 @@ class GUIUploaderApp:
             }
             
             data_bytes = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(
-                config_url,
-                data=data_bytes,
-                headers={
-                    "apikey": self.supabase_key,
-                    "Authorization": f"Bearer {self.supabase_key}",
-                    "Content-Type": "application/json",
-                    "Prefer": "return=minimal"
-                },
-                method="POST"
-            )
-            
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status in [200, 201, 204]:
-                    self.msg_queue.put(("log", f"[자동 등록 성공] Supabase에 '{self.site_id}' 사이트 설정이 성공적으로 자동 등록되었습니다!"))
-                    return True
-                else:
-                    self.msg_queue.put(("log", f"[자동 등록 실패] 서버 응답 상태: {response.status}"))
+            headers = {
+                "apikey": self.supabase_key,
+                "Authorization": f"Bearer {self.supabase_key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            }
+            status, _ = self.make_supabase_request(config_url, data=data_bytes, headers=headers, method="POST", timeout=30)
+            if status in [200, 201, 204]:
+                self.msg_queue.put(("log", f"[자동 등록 성공] Supabase에 '{self.site_id}' 사이트 설정이 성공적으로 자동 등록되었습니다!"))
+                return True
+            else:
+                self.msg_queue.put(("log", f"[자동 등록 실패] 서버 응답 상태: {status}"))
         except Exception as e:
             self.msg_queue.put(("log", f"[자동 등록 오류] {e}"))
         return False
@@ -1124,28 +1124,23 @@ class GUIUploaderApp:
             else:
                 config_url = f"{base_url}/rest/v1/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
                 
-            req = urllib.request.Request(
-                config_url,
-                headers={
-                    "apikey": self.supabase_key,
-                    "Authorization": f"Bearer {self.supabase_key}"
-                },
-                method="GET"
-            )
-            
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200:
-                    res_data = json.loads(response.read().decode('utf-8'))
-                    if isinstance(res_data, list) and len(res_data) > 0:
-                        cfg = res_data[0]
-                        remote_name = cfg.get("site_name")
-                        if remote_name:
-                            self.msg_queue.put(("site_name", remote_name))
-                        return cfg
-                    elif isinstance(res_data, list) and len(res_data) == 0 and allow_auto_reg:
-                        self.msg_queue.put(("log", f"[자동 등록] Supabase에 '{self.site_id}' 설정이 없어 새 등록을 시도합니다..."))
-                        if self.auto_register_site_config():
-                            return self.fetch_site_config(allow_auto_reg=False)
+            headers = {
+                "apikey": self.supabase_key,
+                "Authorization": f"Bearer {self.supabase_key}"
+            }
+            status, body = self.make_supabase_request(config_url, headers=headers, method="GET", timeout=30)
+            if status == 200:
+                res_data = json.loads(body.decode('utf-8'))
+                if isinstance(res_data, list) and len(res_data) > 0:
+                    cfg = res_data[0]
+                    remote_name = cfg.get("site_name")
+                    if remote_name:
+                        self.msg_queue.put(("site_name", remote_name))
+                    return cfg
+                elif isinstance(res_data, list) and len(res_data) == 0 and allow_auto_reg:
+                    self.msg_queue.put(("log", f"[자동 등록] Supabase에 '{self.site_id}' 설정이 없어 새 등록을 시도합니다..."))
+                    if self.auto_register_site_config():
+                        return self.fetch_site_config(allow_auto_reg=False)
         except Exception as e:
             self.msg_queue.put(("log", f"[설정 정보 로드 실패] 오류: {e}"))
         return None
@@ -1386,21 +1381,17 @@ class GUIUploaderApp:
                     config_url = f"{base_url}/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
                 else:
                     config_url = f"{base_url}/rest/v1/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
-                    
-                req = urllib.request.Request(
-                    config_url,
-                    data=json.dumps({"toc_alert_high": toc_alert_high}).encode('utf-8'),
-                    headers={
-                        "apikey": self.supabase_key,
-                        "Authorization": f"Bearer {self.supabase_key}",
-                        "Content-Type": "application/json",
-                        "Prefer": "return=minimal"
-                    },
-                    method="PATCH"
-                )
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    if resp.status in [200, 201, 204]:
-                        self.msg_queue.put(("log", "[원격 테스트] 웹 모의 테스트 요청 플래그를 리셋 완료했습니다."))
+                
+                headers = {
+                    "apikey": self.supabase_key,
+                    "Authorization": f"Bearer {self.supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal"
+                }
+                data_bytes = json.dumps({"toc_alert_high": toc_alert_high}).encode('utf-8')
+                status, _ = self.make_supabase_request(config_url, data=data_bytes, headers=headers, method="PATCH", timeout=30)
+                if status in [200, 201, 204]:
+                    self.msg_queue.put(("log", "[원격 테스트] 웹 모의 테스트 요청 플래그를 리셋 완료했습니다."))
             except Exception as patch_ex:
                 self.msg_queue.put(("log", f"[테스트 플래그 초기화 실패] 오류: {patch_ex}"))
 
