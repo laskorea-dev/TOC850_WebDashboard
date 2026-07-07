@@ -807,17 +807,24 @@ function App() {
       uniqueChannels.forEach(ch => {
         const configVal = siteConfig.toc_alert_high?.[ch.id] || siteConfig.toc_alert_high?.[String(ch.id)];
         const chStr = String(ch.id);
+        let caution = 4500;
         let warning = 6000;
+        let alert_level = "warning"; // 기본값 warning
         if (chStr === '3') {
+          caution = 35;
           warning = 50;
         } else if (chStr === '2') {
+          caution = 800;
           warning = 1000;
         } else if (chStr === '1') {
+          caution = 1500;
           warning = 2000;
         }
         if (configVal !== undefined && configVal !== null) {
           if (typeof configVal === 'object' && !Array.isArray(configVal)) {
-            warning = configVal.warning || 6000;
+            warning = configVal.warning !== undefined ? configVal.warning : warning;
+            caution = configVal.caution !== undefined ? configVal.caution : caution;
+            alert_level = configVal.alert_level || "warning";
           } else {
             const parsedVal = parseFloat(configVal);
             if (!isNaN(parsedVal)) {
@@ -825,7 +832,7 @@ function App() {
             }
           }
         }
-        initial[ch.id] = { warning };
+        initial[ch.id] = { caution, warning, alert_level };
       });
       setLocalAlerts(initial);
       
@@ -1082,17 +1089,22 @@ function App() {
     }
   }, [jumpDate, tableFilteredData, itemsPerPage]);
 
-  // 채널별 TOC 알림 경계값 및 상태 조회 유틸 (주의 경보는 사용자 요청에 의해 제외하고 경고만 표시)
+  // 채널별 TOC 알림 경계값 및 상태 조회 유틸 (주의 및 경고 상태를 판별하여 컬러 분기 지원)
   const getAlertStatus = useCallback((channel, value) => {
     // 기본값 설정
+    let cautionLimit = 4500;
     let warningLimit = 6000;
+    let alert_level = "warning";
 
     const chStr = String(channel);
     if (chStr === '3') { // 방류수
+      cautionLimit = 35;
       warningLimit = 50;
     } else if (chStr === '2') { // 1차처리수 (고농도조)
+      cautionLimit = 800;
       warningLimit = 1000;
     } else if (chStr === '1') { // 유입수 (원수조)
+      cautionLimit = 1500;
       warningLimit = 2000;
     }
 
@@ -1102,7 +1114,9 @@ function App() {
       if (configVal !== undefined && configVal !== null) {
         if (typeof configVal === 'object' && !Array.isArray(configVal)) {
           // JSON 객체 형태
-          warningLimit = parseFloat(configVal.warning || 6000);
+          warningLimit = parseFloat(configVal.warning !== undefined ? configVal.warning : warningLimit);
+          cautionLimit = parseFloat(configVal.caution !== undefined ? configVal.caution : cautionLimit);
+          alert_level = configVal.alert_level || "warning";
         } else {
           // 기존 단일 숫자 형태
           const parsedVal = parseFloat(configVal);
@@ -1114,12 +1128,14 @@ function App() {
     }
 
     const valNum = parseFloat(value);
-    if (isNaN(valNum)) return { status: 'normal', warningLimit };
+    if (isNaN(valNum)) return { status: 'normal', cautionLimit, warningLimit, alert_level };
 
     if (!isNaN(warningLimit) && valNum >= warningLimit) {
-      return { status: 'warning', warningLimit };
+      return { status: 'warning', cautionLimit, warningLimit, alert_level };
+    } else if (!isNaN(cautionLimit) && valNum >= cautionLimit) {
+      return { status: 'caution', cautionLimit, warningLimit, alert_level };
     }
-    return { status: 'normal', warningLimit };
+    return { status: 'normal', cautionLimit, warningLimit, alert_level };
   }, [siteConfig]);
 
   // CSV 다운로드 전용 필터링 및 다운로드 구현
@@ -1426,12 +1442,14 @@ function App() {
                 <thead>
                   <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
                     <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
                     <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>알람 발송 기준</th>
                   </tr>
                 </thead>
                 <tbody>
                   {uniqueChannels.map(ch => {
-                    const alertLimits = localAlerts[ch.id] || { warning: 6000 };
+                    const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
                     return (
                       <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '10px', fontWeight: 600 }}>
@@ -1442,7 +1460,22 @@ function App() {
                             type="number"
                             className="custom-select"
                             style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
-                            value={alertLimits.warning}
+                            value={alertLimits.caution !== undefined ? alertLimits.caution : ''}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setLocalAlerts(prev => ({
+                                ...prev,
+                                [ch.id]: { ...prev[ch.id], caution: val }
+                              }));
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <input
+                            type="number"
+                            className="custom-select"
+                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                            value={alertLimits.warning !== undefined ? alertLimits.warning : ''}
                             onChange={(e) => {
                               const val = parseFloat(e.target.value) || 0;
                               setLocalAlerts(prev => ({
@@ -1451,6 +1484,23 @@ function App() {
                               }));
                             }}
                           />
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <select
+                            className="custom-select"
+                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                            value={alertLimits.alert_level || 'warning'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setLocalAlerts(prev => ({
+                                ...prev,
+                                [ch.id]: { ...prev[ch.id], alert_level: val }
+                              }));
+                            }}
+                          >
+                            <option value="caution">주의 이상</option>
+                            <option value="warning">경고 이상</option>
+                          </select>
                         </td>
                       </tr>
                     );
@@ -1500,12 +1550,14 @@ function App() {
                 let isValid = true;
                 uniqueChannels.forEach(ch => {
                   const lim = localAlerts[ch.id];
-                  if (lim && lim.warning < 0) {
-                    isValid = false;
+                  if (lim) {
+                    if (lim.warning < 0 || lim.caution < 0) {
+                      isValid = false;
+                    }
                   }
                 });
                 if (!isValid) {
-                  alert("경고 기준값은 0 이상이어야 합니다.");
+                  alert("임계 기준값은 0 이상이어야 합니다.");
                   return;
                 }
 
@@ -1672,6 +1724,8 @@ function App() {
                   let statusBadge = <span style={{ color: 'var(--text-muted)' }}>● 정상</span>;
                   if (status === 'warning') {
                     statusBadge = <span style={{ color: 'var(--accent-rose)', fontWeight: 700 }}>● 경고 (Warning)</span>;
+                  } else if (status === 'caution') {
+                    statusBadge = <span style={{ color: 'orange', fontWeight: 700 }}>● 주의 (Caution)</span>;
                   }
 
                   return (
@@ -1686,7 +1740,13 @@ function App() {
                       <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{item.Date_Time}</td>
                       <td style={{ padding: '12px 16px' }}><code>{item.Device_ID}</code></td>
                       <td style={{ padding: '12px 16px', fontWeight: 600 }}>{item.Channel_Name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>(Ch {item.Channel})</span></td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '0.92rem' }}>
+                      <td style={{ 
+                        padding: '12px 16px', 
+                        textAlign: 'right', 
+                        fontWeight: 700, 
+                        fontSize: '0.92rem',
+                        color: status === 'warning' ? 'var(--accent-rose)' : (status === 'caution' ? 'orange' : 'inherit')
+                      }}>
                         {item.TOC_Conc !== undefined ? item.TOC_Conc.toFixed(2) : '-'}
                       </td>
                       <td style={{ padding: '12px 16px' }}>{statusBadge}</td>
@@ -2097,14 +2157,20 @@ function App() {
                     </tr>
                   ) : (
                     paginatedData.map((row, index) => {
-                      const { status, warningLimit } = getAlertStatus(row.Channel, row.TOC_Conc);
+                      const { status, cautionLimit, warningLimit } = getAlertStatus(row.Channel, row.TOC_Conc);
                       const isWarning = status === 'warning';
+                      const isCaution = status === 'caution';
                       
                       let rowClass = '';
                       if (isWarning) rowClass = 'row-alert';
+                      else if (isCaution) rowClass = 'row-caution';
 
                       let textColor = 'inherit';
-                      if (isWarning) textColor = 'var(--accent-rose)';
+                      if (isWarning) {
+                        textColor = 'var(--accent-rose)';
+                      } else if (isCaution) {
+                        textColor = 'orange';
+                      }
 
                       return (
                         <tr key={index} className={rowClass}>
@@ -2113,6 +2179,7 @@ function App() {
                           <td style={{ fontWeight: 600, color: textColor, whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                               {isWarning && <span className="alert-dot warning" title={`경고 기준치 (${warningLimit} ppm) 초과`} />}
+                              {isCaution && <span className="alert-dot caution" style={{ background: 'orange' }} title={`주의 기준치 (${cautionLimit} ppm) 초과`} />}
                               <span>{row.TOC_Conc}</span>
                             </div>
                           </td>
@@ -2328,12 +2395,14 @@ function App() {
                       <thead>
                         <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
                           <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
+                          <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
                           <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
+                          <th style={{ padding: '10px', textAlign: 'left' }}>알람 발송 기준</th>
                         </tr>
                       </thead>
                       <tbody>
                         {uniqueChannels.map(ch => {
-                          const alertLimits = localAlerts[ch.id] || { warning: 6000 };
+                          const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
                           return (
                             <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                               <td style={{ padding: '10px', fontWeight: 600 }}>
@@ -2344,7 +2413,22 @@ function App() {
                                   type="number"
                                   className="custom-select"
                                   style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
-                                  value={alertLimits.warning}
+                                  value={alertLimits.caution !== undefined ? alertLimits.caution : ''}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setLocalAlerts(prev => ({
+                                      ...prev,
+                                      [ch.id]: { ...prev[ch.id], caution: val }
+                                    }));
+                                  }}
+                                />
+                              </td>
+                              <td style={{ padding: '8px' }}>
+                                <input
+                                  type="number"
+                                  className="custom-select"
+                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                                  value={alertLimits.warning !== undefined ? alertLimits.warning : ''}
                                   onChange={(e) => {
                                     const val = parseFloat(e.target.value) || 0;
                                     setLocalAlerts(prev => ({
@@ -2353,6 +2437,23 @@ function App() {
                                     }));
                                   }}
                                 />
+                              </td>
+                              <td style={{ padding: '8px' }}>
+                                <select
+                                  className="custom-select"
+                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                                  value={alertLimits.alert_level || 'warning'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setLocalAlerts(prev => ({
+                                      ...prev,
+                                      [ch.id]: { ...prev[ch.id], alert_level: val }
+                                    }));
+                                  }}
+                                >
+                                  <option value="caution">주의 이상</option>
+                                  <option value="warning">경고 이상</option>
+                                </select>
                               </td>
                             </tr>
                           );
@@ -2456,12 +2557,14 @@ function App() {
                     let isValid = true;
                     uniqueChannels.forEach(ch => {
                       const lim = localAlerts[ch.id];
-                      if (lim && lim.warning < 0) {
-                        isValid = false;
+                      if (lim) {
+                        if (lim.warning < 0 || lim.caution < 0) {
+                          isValid = false;
+                        }
                       }
                     });
                     if (!isValid) {
-                      alert("경고 기준값은 0 이상이어야 합니다.");
+                      alert("임계 기준값은 0 이상이어야 합니다.");
                       return;
                     }
 

@@ -340,6 +340,7 @@ class GUIUploaderApp:
         device_id_label.grid(row=4, column=0, sticky=tk.W, pady=(0, 2), padx=(0, 5))
         
         device_id_entry = tk.Entry(self.settings_frame, textvariable=self.device_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        device_id_entry.config(state="readonly")
         device_id_entry.grid(row=5, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
 
         # 동기화 주기 (분) 입력
@@ -1209,15 +1210,20 @@ class GUIUploaderApp:
             toc_val = rec.get("TOC_Conc", 0.0)
             date_time = rec.get("Date_Time", "")
 
-            # 2. 임계값(경고치) 확인
+            # 2. 임계값(경고치 및 주의치) 확인
             warning_limit = 6000.0
+            caution_limit = 4500.0
+            alert_level = "warning"  # 기본 알람 등급
 
             # 채널별 요구사항 기반 초기값(폴백) 설정
             if channel_id == "3":  # 방류수
+                caution_limit = 35.0
                 warning_limit = 50.0
             elif channel_id == "2":  # 1차처리수 (고농도조 유력)
+                caution_limit = 800.0
                 warning_limit = 1000.0
             elif channel_id == "1":  # 유입수 (원수조 유력)
+                caution_limit = 1500.0
                 warning_limit = 2000.0
 
             # DB 로드 값 적용
@@ -1225,6 +1231,8 @@ class GUIUploaderApp:
             if ch_config:
                 if isinstance(ch_config, dict):
                     warning_limit = float(ch_config.get("warning", warning_limit))
+                    caution_limit = float(ch_config.get("caution", caution_limit))
+                    alert_level = ch_config.get("alert_level", "warning")
                 else:
                     # 구버전 단일 숫자 형태 대응
                     try:
@@ -1232,15 +1240,22 @@ class GUIUploaderApp:
                     except ValueError:
                         pass
 
-            # 3. 경고 수치 초과 여부 확인
-            if toc_val >= warning_limit:
-                # 4. 이메일 쿨다운(1시간) 확인
+            # 3. 알림 트리거 기준 한도 결정
+            trigger_limit = warning_limit
+            alert_type_str = "경고"
+            if alert_level == "caution":
+                trigger_limit = caution_limit
+                alert_type_str = "주의"
+
+            # 4. 수치 초과 여부 확인 (지정된 알람 트리거 등급 기준 초과 시 발송)
+            if toc_val >= trigger_limit:
+                # 5. 이메일 쿨다운(1시간) 확인
                 last_time = self.last_alert_time.get(channel_id)
                 if last_time and (now_time - last_time).total_seconds() < 3600:
                     continue  # 쿨다운 미경과 시 전송 생략
 
                 # 이메일 제목 및 본문 작성
-                subject = f"[TOC 경고 알림] {site_name} - {channel_name} 경고 수치 초과 ({toc_val} ppm)"
+                subject = f"[{alert_type_str} 알림] {site_name} - {channel_name} {alert_type_str} 수치 초과 ({toc_val} ppm)"
                 body = f"""
                 <html>
                 <body style="font-family: 'Malgun Gothic', sans-serif; line-height: 1.6; color: #333;">

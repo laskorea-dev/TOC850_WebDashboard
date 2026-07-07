@@ -614,11 +614,53 @@ function LegacyApp() {
     }
   }, [jumpDate, tableFilteredData, itemsPerPage]);
 
-  // 채널별 TOC 알림 경계값 조회 유틸
-  const getAlertThreshold = useCallback((channel) => {
-    if (!siteConfig || !siteConfig.toc_alert_high) return null;
-    const threshold = parseFloat(siteConfig.toc_alert_high[channel] || siteConfig.toc_alert_high[String(channel)]);
-    return isNaN(threshold) ? null : threshold;
+  // 채널별 TOC 알림 경계값 및 상태 조회 유틸 (주의 및 경고 상태를 판별하여 컬러 분기 지원)
+  const getAlertStatus = useCallback((channel, value) => {
+    // 기본값 설정
+    let cautionLimit = 4500;
+    let warningLimit = 6000;
+    let alert_level = "warning";
+
+    const chStr = String(channel);
+    if (chStr === '3') { // 방류수
+      cautionLimit = 35;
+      warningLimit = 50;
+    } else if (chStr === '2') { // 1차처리수 (고농도조)
+      cautionLimit = 800;
+      warningLimit = 1000;
+    } else if (chStr === '1') { // 유입수 (원수조)
+      cautionLimit = 1500;
+      warningLimit = 2000;
+    }
+
+    if (siteConfig && siteConfig.toc_alert_high) {
+      const configVal = siteConfig.toc_alert_high[channel] || siteConfig.toc_alert_high[String(channel)];
+      
+      if (configVal !== undefined && configVal !== null) {
+        if (typeof configVal === 'object' && !Array.isArray(configVal)) {
+          // JSON 객체 형태
+          warningLimit = parseFloat(configVal.warning !== undefined ? configVal.warning : warningLimit);
+          cautionLimit = parseFloat(configVal.caution !== undefined ? configVal.caution : cautionLimit);
+          alert_level = configVal.alert_level || "warning";
+        } else {
+          // 기존 단일 숫자 형태
+          const parsedVal = parseFloat(configVal);
+          if (!isNaN(parsedVal)) {
+            warningLimit = parsedVal;
+          }
+        }
+      }
+    }
+
+    const valNum = parseFloat(value);
+    if (isNaN(valNum)) return { status: 'normal', cautionLimit, warningLimit, alert_level };
+
+    if (!isNaN(warningLimit) && valNum >= warningLimit) {
+      return { status: 'warning', cautionLimit, warningLimit, alert_level };
+    } else if (!isNaN(cautionLimit) && valNum >= cautionLimit) {
+      return { status: 'caution', cautionLimit, warningLimit, alert_level };
+    }
+    return { status: 'normal', cautionLimit, warningLimit, alert_level };
   }, [siteConfig]);
 
   // CSV 다운로드 전용 필터링 및 다운로드 구현
@@ -1205,15 +1247,29 @@ function LegacyApp() {
                     </tr>
                   ) : (
                     paginatedData.map((row, index) => {
-                      const threshold = getAlertThreshold(row.Channel);
-                      const isAlert = threshold !== null && row.TOC_Conc > threshold;
+                      const { status, cautionLimit, warningLimit } = getAlertStatus(row.Channel, row.TOC_Conc);
+                      const isWarning = status === 'warning';
+                      const isCaution = status === 'caution';
+                      
+                      let rowClass = '';
+                      if (isWarning) rowClass = 'row-alert';
+                      else if (isCaution) rowClass = 'row-caution';
+
+                      let textColor = 'inherit';
+                      if (isWarning) {
+                        textColor = 'var(--accent-rose)';
+                      } else if (isCaution) {
+                        textColor = 'orange';
+                      }
+
                       return (
-                        <tr key={index} className={isAlert ? 'row-alert' : ''}>
+                        <tr key={index} className={rowClass}>
                           <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
                           <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{row.Channel_Name}</td>
-                          <td style={{ fontWeight: 600, color: isAlert ? 'var(--accent-rose)' : 'inherit', whiteSpace: 'nowrap' }}>
+                          <td style={{ fontWeight: 600, color: textColor, whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                              {isAlert && <span className="alert-dot" title={`경고 기준치 (${threshold} ppm) 초과`} />}
+                              {isWarning && <span className="alert-dot warning" title={`경고 기준치 (${warningLimit} ppm) 초과`} />}
+                              {isCaution && <span className="alert-dot caution" style={{ background: 'orange' }} title={`주의 기준치 (${cautionLimit} ppm) 초과`} />}
                               <span>{row.TOC_Conc}</span>
                             </div>
                           </td>
