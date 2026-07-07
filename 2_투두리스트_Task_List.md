@@ -137,3 +137,6 @@
 * [x] **SQLite/Supabase uploader 연동 알람 체크 스레드 내 주의/경고 트리거 기준 및 alert_level 매핑 분기 호환 패치 완료**
 * [x] **신규 바이너리 컴파일 (`gui_uploader_v5.2.exe`) 및 배포 패키지(`계측기_PC_배포패키지_v5.2`) 제작 완료**
 * [x] **대시보드 접속 주소 파라미터(?site= 또는 ?device=) 입력값 유효성 검사 및 미등록 기기 접속 전면 차단(보안 강화)**
+* [x] **업로더 최초 기동 시 `site_id` 또는 `site_name`이 `"auto"`인 경우 강제 일시정지(`is_paused = True`) 및 Supabase 기기등록/업로드 원천 차단(Fail-safe)**
+* [x] **일시정지 상태 시 10초 주기 테스트 알림 감지 등 백그라운드 Supabase API 쿼리 요청 전면 중단 처리**
+* [x] **GUI 설정 저장 시 `site_id` / `site_name`이 auto가 아니면 `is_auto_config` 플래그 자동 해제 연동**

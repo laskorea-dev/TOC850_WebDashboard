@@ -102,6 +102,10 @@ class GUIUploaderApp:
         else:
             self.log_to_viewer("[동작 모드] Supabase 클라우드 실시간 전송 활성화 됨.")
             self.log_to_viewer(f"-> 전송 대상 URL: '{self.supabase_url}' | 테이블: '{self.supabase_table}'")
+            
+        if hasattr(self, 'is_auto_config') and self.is_auto_config:
+            self.log_to_viewer("⚠️ [대기 상태] 지점 식별자(Site ID)와 사이트 이름(Site Name)이 'auto' 상태이므로 자동 동기화 및 기기 설정(device_config) 자동 등록이 보류되었습니다.")
+            self.log_to_viewer("⚠️ 설정을 실제 지점 정보로 수정 후 저장(💾)하고 [동기화 시작/재개]를 실행해 주십시오.")
 
         # 기동 후 자동 1회 즉시 동기화 (3초 후 실행하여 UI 안정화 대기)
         self.startup_sync_pending = True
@@ -135,8 +139,10 @@ class GUIUploaderApp:
                 
                 # site_id 와 device_id 분리 로드 (하위 호환성)
                 site_id_raw = config.get("site_id", config.get("device_id", ""))
+                self.is_auto_config = False
                 if not site_id_raw or site_id_raw.strip() == "" or site_id_raw.lower() == "auto":
                     self.site_id = self.get_unique_device_id()
+                    self.is_auto_config = True
                 else:
                     self.site_id = site_id_raw.strip()
                 
@@ -144,6 +150,7 @@ class GUIUploaderApp:
                 self.site_name = config.get("site_name", "")
                 if not self.site_name or self.site_name.strip() == "" or self.site_name.lower() == "auto":
                     self.site_name = self.site_id
+                    self.is_auto_config = True
 
                 # device_id는 항상 물리 PC 호스트네임 자동 획득
                 self.device_id = self.get_unique_device_id()
@@ -177,6 +184,8 @@ class GUIUploaderApp:
                 )
                 
                 self.is_paused = config.get("is_paused", False)
+                if self.is_auto_config:
+                    self.is_paused = True
                 config_mock = config.get("is_mock", True)
                 if self.supabase_url and self.supabase_key:
                     self.is_mock = config_mock
@@ -595,6 +604,8 @@ class GUIUploaderApp:
 
     def bg_update_site_name_on_supabase(self, device_id, site_name, supabase_url, supabase_key):
         """Supabase device_config의 site_name 컬럼을 백그라운드에서 PATCH로 비동기 업데이트합니다."""
+        if not site_name or site_name.strip() == "" or site_name.lower() == "auto":
+            return
         if not supabase_url or not supabase_key:
             return
         try:
@@ -698,6 +709,12 @@ class GUIUploaderApp:
 
             self.site_id = site_id
             self.device_id = device_id
+            self.site_name = site_name
+            
+            if site_id.lower() == "auto" or site_name.lower() == "auto":
+                self.is_auto_config = True
+            else:
+                self.is_auto_config = False
 
             config_data = {
                 "db_path": db_path,
@@ -874,11 +891,11 @@ class GUIUploaderApp:
                     text="일시정지 상태"
                 )
             
-            # 10초마다 Supabase 설정에서 원격 테스트 메일 트리거 감지
+            # 10초마다 Supabase 설정에서 원격 테스트 메일 트리거 감지 (일시정지 시에는 차단)
             self.check_config_timer += 1
             if self.check_config_timer >= 10:
                 self.check_config_timer = 0
-                if self.supabase_url and self.supabase_key and not self.is_mock:
+                if self.supabase_url and self.supabase_key and not self.is_mock and not self.is_paused:
                     threading.Thread(target=self.bg_check_test_alert_trigger, daemon=True).start()
 
             self.root.after(1000, tick)
@@ -1097,6 +1114,12 @@ class GUIUploaderApp:
 
     def auto_register_device_config(self):
         """Supabase device_config 테이블에 현재 device_id용 기본 설정을 자동 등록합니다."""
+        if not self.site_id or self.site_id.strip() == "" or self.site_id.lower() == "auto":
+            self.msg_queue.put(("log", "[자동 등록 보류] site_id가 'auto'이거나 비어있어 device_config 등록을 진행하지 않습니다."))
+            return False
+        if not self.site_name or self.site_name.strip() == "" or self.site_name.lower() == "auto":
+            self.msg_queue.put(("log", "[자동 등록 보류] site_name이 'auto'이거나 비어있어 device_config 등록을 진행하지 않습니다."))
+            return False
         try:
             base_url = self.supabase_url.rstrip('/')
             if "/rest/v1" in base_url:
