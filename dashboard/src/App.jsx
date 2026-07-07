@@ -234,6 +234,13 @@ function App() {
   const [telegramChatIds, setTelegramChatIds] = useState('');
   const [isPreviewMode, setIsPreviewMode] = useState(false); // 새 대시보드 미리보기 모드 상태
 
+  // 알림 수신 직접 등록 모달 상태
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [regName, setRegName] = useState('');
+  const [regType, setRegType] = useState('telegram');
+  const [regValue, setRegValue] = useState('');
+  const [regIsSending, setRegIsSending] = useState(false);
+
   // 시뮬레이션 데이터 및 제어 상태
   const [simChannel, setSimChannel] = useState('3');
   const [simToc, setSimToc] = useState('');
@@ -279,6 +286,8 @@ function App() {
             passcode: conf.passcode || '850',
             site_name: conf.site_name || 'LAS TOC-850 온라인 계측 모니터링 대시보드',
             is_active: conf.is_active !== false,
+            alert_emails: conf.alert_emails || '',
+            telegram_chat_ids: conf.telegram_chat_ids || '',
             toc_alert_high: alertObj,
             loading: false
           });
@@ -417,6 +426,17 @@ function App() {
         ? `${baseUrl}/site_config_v2`
         : `${baseUrl}/rest/v1/site_config_v2`;
 
+      // receivers가 있다면 flat fields 동기화
+      const receivers = updatedAlerts.receivers || [];
+      const telegramIds = receivers.filter(r => r.type === 'telegram').map(r => r.value).join(',');
+      const emails = receivers.filter(r => r.type === 'email').map(r => r.value).join(',');
+
+      const payload = {
+        toc_alert_high: updatedAlerts,
+        telegram_chat_ids: telegramIds || updatedAlerts.telegram_chat_ids || '',
+        alert_emails: emails || updatedAlerts.alert_emails || ''
+      };
+
       const response = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
         method: 'PATCH',
         headers: {
@@ -425,9 +445,7 @@ function App() {
           'Content-Type': 'application/json',
           'Prefer': 'return=representation'
         },
-        body: JSON.stringify({
-          toc_alert_high: updatedAlerts
-        })
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
@@ -442,6 +460,202 @@ function App() {
       console.error("설정 저장 실패:", err);
       alert(`설정 저장 실패: ${err.message}`);
       return false;
+    }
+  }, [siteConfig, loadSiteConfig]);
+
+  // 알림 수신인 직접 등록 API (POST)
+  const registerReceiver = useCallback(async () => {
+    if (!regName.trim()) {
+      alert("이름을 입력해주세요.");
+      return;
+    }
+    if (!regValue.trim()) {
+      alert("수신 번호 또는 이메일을 입력해주세요.");
+      return;
+    }
+    
+    // 이메일 패턴 검사
+    if (regType === 'email') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(regValue.trim())) {
+        alert("올바른 이메일 형식이 아닙니다.");
+        return;
+      }
+    }
+    
+    // 텔레그램 ID 패턴 검사 (숫자만, 또는 - 로 시작하는 숫자)
+    if (regType === 'telegram') {
+      const tgRegex = /^-?\d+$/;
+      if (!tgRegex.test(regValue.trim())) {
+        alert("텔레그램 Chat ID는 숫자(마이너스 부호 포함 가능)로 입력해야 합니다.");
+        return;
+      }
+    }
+
+    setRegIsSending(true);
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const configEndpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/site_config_v2`
+        : `${baseUrl}/rest/v1/site_config_v2`;
+
+      // 1. 최신 설정 다시 로드하여 동시성 제어
+      const res = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        }
+      });
+      if (!res.ok) throw new Error('현재 지점 설정을 가져올 수 없습니다.');
+      const dataList = await res.json();
+      if (!dataList || dataList.length === 0) throw new Error('등록된 지점 설정이 없습니다.');
+      
+      const currentConfig = dataList[0];
+      let alertObj = {};
+      if (currentConfig.toc_alert_high) {
+        alertObj = typeof currentConfig.toc_alert_high === 'string'
+          ? JSON.parse(currentConfig.toc_alert_high)
+          : currentConfig.toc_alert_high;
+      }
+      
+      // receivers 추출 및 신규 추가
+      const receivers = alertObj.receivers || [];
+      
+      // 중복 체크
+      if (receivers.some(r => r.value === regValue.trim())) {
+        alert("이미 등록된 알림 수신처입니다.");
+        setRegIsSending(false);
+        return;
+      }
+
+      const newReceiver = {
+        name: regName.trim(),
+        value: regValue.trim(),
+        type: regType,
+        created_at: new Date().toISOString()
+      };
+      
+      const updatedReceivers = [...receivers, newReceiver];
+      
+      // Comma-separated strings for flat columns
+      const updatedTelegramIds = updatedReceivers.filter(r => r.type === 'telegram').map(r => r.value).join(',');
+      const updatedEmails = updatedReceivers.filter(r => r.type === 'email').map(r => r.value).join(',');
+      
+      const updatedAlerts = {
+        ...alertObj,
+        receivers: updatedReceivers,
+        telegram_chat_ids: updatedTelegramIds,
+        alert_emails: updatedEmails
+      };
+
+      const patchRes = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({
+          toc_alert_high: updatedAlerts,
+          telegram_chat_ids: updatedTelegramIds,
+          alert_emails: updatedEmails
+        })
+      });
+
+      if (patchRes.ok) {
+        alert("알림 수신인 등록 성공! 이제 해당 텔레그램/이메일로 경보 알림이 전송됩니다.");
+        setRegName('');
+        setRegValue('');
+        setIsRegisterModalOpen(false);
+        loadSiteConfig(); // 설정 재로드
+      } else {
+        const errData = await patchRes.json();
+        throw new Error(errData.message || '저장 중 오류가 발생했습니다.');
+      }
+    } catch (err) {
+      console.error("수신인 등록 실패:", err);
+      alert(`수신인 등록 실패: ${err.message}`);
+    } finally {
+      setRegIsSending(false);
+    }
+  }, [regName, regType, regValue, siteConfig, loadSiteConfig]);
+
+  // 알림 수신인 삭제 API (DELETE)
+  const deleteReceiver = useCallback(async (receiverValue) => {
+    if (!window.confirm("선택한 사용자의 알림 수신을 해제하시겠습니까?")) {
+      return;
+    }
+    try {
+      if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+      }
+      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const configEndpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/site_config_v2`
+        : `${baseUrl}/rest/v1/site_config_v2`;
+
+      // 1. 최신 설정 다시 로드
+      const res = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        }
+      });
+      if (!res.ok) throw new Error('현재 지점 설정을 가져올 수 없습니다.');
+      const dataList = await res.json();
+      if (!dataList || dataList.length === 0) throw new Error('등록된 지점 설정이 없습니다.');
+      
+      const currentConfig = dataList[0];
+      let alertObj = {};
+      if (currentConfig.toc_alert_high) {
+        alertObj = typeof currentConfig.toc_alert_high === 'string'
+          ? JSON.parse(currentConfig.toc_alert_high)
+          : currentConfig.toc_alert_high;
+      }
+      
+      const receivers = alertObj.receivers || [];
+      const updatedReceivers = receivers.filter(r => r.value !== receiverValue);
+      
+      // Comma-separated strings
+      const updatedTelegramIds = updatedReceivers.filter(r => r.type === 'telegram').map(r => r.value).join(',');
+      const updatedEmails = updatedReceivers.filter(r => r.type === 'email').map(r => r.value).join(',');
+      
+      const updatedAlerts = {
+        ...alertObj,
+        receivers: updatedReceivers,
+        telegram_chat_ids: updatedTelegramIds,
+        alert_emails: updatedEmails
+      };
+
+      const patchRes = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({
+          toc_alert_high: updatedAlerts,
+          telegram_chat_ids: updatedTelegramIds,
+          alert_emails: updatedEmails
+        })
+      });
+
+      if (patchRes.ok) {
+        alert("알림 수신인이 삭제되었습니다.");
+        loadSiteConfig(); // 설정 재로드
+      } else {
+        const errData = await patchRes.json();
+        throw new Error(errData.message || '삭제 중 오류가 발생했습니다.');
+      }
+    } catch (err) {
+      console.error("수신인 삭제 실패:", err);
+      alert(`수신인 삭제 실패: ${err.message}`);
     }
   }, [siteConfig, loadSiteConfig]);
 
@@ -1522,6 +1736,9 @@ function App() {
           <p>LAS KOREA 제공 · 총 {data.length.toLocaleString()}건 수집</p>
         </div>
         <div className="header-controls" style={{ display: 'flex', gap: '8px' }}>
+          <button className="filter-btn" style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.3)', color: '#3b82f6' }} onClick={() => setIsRegisterModalOpen(true)}>
+            🔔 알림 수신 등록
+          </button>
           <button className="filter-btn" onClick={() => setIsConfigModalOpen(true)}>
             설정 ⚙️
           </button>
@@ -2154,6 +2371,57 @@ function App() {
                     </span>
                   </div>
 
+                  {/* 알림 수신자 목록 관리 */}
+                  <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '12px' }}>
+                      👥 등록된 알림 수신자 목록
+                    </label>
+                    {(() => {
+                      const receiversList = siteConfig.toc_alert_high?.receivers || [];
+                      if (receiversList.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '16px', fontSize: '0.85rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.01)', borderRadius: '6px', border: '1px dashed var(--border-color)' }}>
+                            등록된 알림 수신자가 없습니다.
+                          </div>
+                        );
+                      }
+                      return (
+                        <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
+                          <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                            <thead>
+                              <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
+                                <th style={{ padding: '8px', textAlign: 'left' }}>이름</th>
+                                <th style={{ padding: '8px', textAlign: 'left' }}>구분</th>
+                                <th style={{ padding: '8px', textAlign: 'left' }}>수신처 (ID / 이메일)</th>
+                                {isAdminParam && <th style={{ padding: '8px', textAlign: 'center', width: '60px' }}>관리</th>}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {receiversList.map((r, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                  <td style={{ padding: '8px', fontWeight: 600 }}>{r.name}</td>
+                                  <td style={{ padding: '8px' }}>{r.type === 'telegram' ? '✈️ 텔레그램' : '📧 이메일'}</td>
+                                  <td style={{ padding: '8px', fontFamily: 'monospace' }}>{r.value}</td>
+                                  {isAdminParam && (
+                                    <td style={{ padding: '6px', textAlign: 'center' }}>
+                                      <button 
+                                        className="sim-btn" 
+                                        style={{ padding: '3px 8px', fontSize: '0.72rem', background: 'rgba(235, 94, 94, 0.15)', borderColor: 'rgba(235, 94, 94, 0.3)', color: 'var(--accent-rose)' }}
+                                        onClick={() => deleteReceiver(r.value)}
+                                      >
+                                        삭제
+                                      </button>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
                 </div>
 
                 <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
@@ -2182,6 +2450,92 @@ function App() {
                       setIsConfigModalOpen(false);
                     }
                   }}>설정 저장 💾</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 알림 등록 모달 (누구나 직접 알림을 신청할 수 있는 양식) */}
+          {isRegisterModalOpen && (
+            <div className="modal-overlay" onClick={() => setIsRegisterModalOpen(false)}>
+              <div className="glass-card modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px', width: '90%' }}>
+                <div className="modal-header">
+                  <h3>🔔 실시간 경고 알림 수신 등록</h3>
+                  <button className="modal-close-btn" onClick={() => setIsRegisterModalOpen(false)}>✕</button>
+                </div>
+
+                <div className="modal-body" style={{ color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                    TOC 측정 수치가 기준값을 초과하여 경고가 발생했을 때 메일 또는 텔레그램으로 경보 알림을 전송받을 수 있도록 본인의 정보를 등록해 주세요.
+                  </p>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '6px' }}>
+                      수신자 이름 (부서 및 직급 포함 권장)
+                    </label>
+                    <input
+                      type="text"
+                      className="custom-select"
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      placeholder="예: 홍길동 대리, 설비 관리팀"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '6px' }}>
+                      알림 수단 선택
+                    </label>
+                    <div style={{ display: 'flex', gap: '16px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="regType"
+                          value="telegram"
+                          checked={regType === 'telegram'}
+                          onChange={() => setRegType('telegram')}
+                        />
+                        ✈️ 텔레그램
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="regType"
+                          value="email"
+                          checked={regType === 'email'}
+                          onChange={() => setRegType('email')}
+                        />
+                        📧 이메일
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '6px' }}>
+                      {regType === 'telegram' ? '✈️ 텔레그램 Chat ID' : '📧 이메일 주소'}
+                    </label>
+                    <input
+                      type="text"
+                      className="custom-select"
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      placeholder={regType === 'telegram' ? "9자리 또는 10자리 숫자 ID 입력" : "예: email@test.com"}
+                      value={regValue}
+                      onChange={(e) => setRegValue(e.target.value)}
+                    />
+                    {regType === 'telegram' && (
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
+                        * 텔레그램에서 <strong>laskorea_Alert_bot</strong> 봇을 검색하여 <strong>[시작]</strong> 버튼을 누른 뒤 본인의 챗 ID를 확인하여 입력해 주셔야 알림이 수신됩니다.
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                  <button className="filter-btn" onClick={() => setIsRegisterModalOpen(false)}>취소</button>
+                  <button className="sim-btn" disabled={regIsSending} onClick={registerReceiver}>
+                    {regIsSending ? '등록 중...' : '알림 등록 💾'}
+                  </button>
                 </div>
               </div>
             </div>
