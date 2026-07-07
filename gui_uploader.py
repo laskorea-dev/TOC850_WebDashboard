@@ -969,11 +969,11 @@ class GUIUploaderApp:
         else:
             last_datetime = self.last_upload_time if self.last_upload_time != "None (First Run)" else None
         
-        # 증분 쿼리 구문 조합 (특정 Device_ID 데이터만 조회하도록 필터 보강)
+        # 증분 쿼리 구문 조합
         if last_datetime:
-            query = f"SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = '{self.device_id}' AND Date_Time > '{last_datetime}' ORDER BY Date_Time ASC"
+            query = f"SELECT * FROM Measure_Result_With_Channel_Name WHERE Date_Time > '{last_datetime}' ORDER BY Date_Time ASC"
         else:
-            query = f"SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = '{self.device_id}' ORDER BY Date_Time ASC"
+            query = "SELECT * FROM Measure_Result_With_Channel_Name ORDER BY Date_Time ASC"
             
         self.msg_queue.put(("query", query))
 
@@ -992,14 +992,11 @@ class GUIUploaderApp:
                 
             if last_datetime:
                 cursor.execute(
-                    "SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = ? AND Date_Time > ? ORDER BY Date_Time ASC",
-                    (self.device_id, last_datetime)
+                    "SELECT * FROM Measure_Result_With_Channel_Name WHERE Date_Time > ? ORDER BY Date_Time ASC",
+                    (last_datetime,)
                 )
             else:
-                cursor.execute(
-                    "SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = ? ORDER BY Date_Time ASC",
-                    (self.device_id,)
-                )
+                cursor.execute("SELECT * FROM Measure_Result_With_Channel_Name ORDER BY Date_Time ASC")
                 
             rows = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
