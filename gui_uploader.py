@@ -152,8 +152,12 @@ class GUIUploaderApp:
                     self.site_name = self.site_id
                     self.is_auto_config = True
 
-                # device_id는 항상 물리 PC 호스트네임 자동 획득
-                self.device_id = self.get_unique_device_id()
+                # device_id 로드 (auto이거나 비어있을 때만 호스트명 자동 획득)
+                dev_id_raw = config.get("device_id", "")
+                if not dev_id_raw or dev_id_raw.strip() == "" or dev_id_raw.lower() == "auto":
+                    self.device_id = self.get_unique_device_id()
+                else:
+                    self.device_id = dev_id_raw.strip()
                 
                 self.interval_seconds = int(config.get("interval_seconds", DEFAULT_INTERVAL_SECONDS))
                 self.last_query = config.get("last_query", "N/A")
@@ -965,11 +969,11 @@ class GUIUploaderApp:
         else:
             last_datetime = self.last_upload_time if self.last_upload_time != "None (First Run)" else None
         
-        # 증분 쿼리 구문 조합
+        # 증분 쿼리 구문 조합 (특정 Device_ID 데이터만 조회하도록 필터 보강)
         if last_datetime:
-            query = f"SELECT * FROM Measure_Result_With_Channel_Name WHERE Date_Time > '{last_datetime}' ORDER BY Date_Time ASC"
+            query = f"SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = '{self.device_id}' AND Date_Time > '{last_datetime}' ORDER BY Date_Time ASC"
         else:
-            query = "SELECT * FROM Measure_Result_With_Channel_Name ORDER BY Date_Time ASC"
+            query = f"SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = '{self.device_id}' ORDER BY Date_Time ASC"
             
         self.msg_queue.put(("query", query))
 
@@ -988,11 +992,14 @@ class GUIUploaderApp:
                 
             if last_datetime:
                 cursor.execute(
-                    "SELECT * FROM Measure_Result_With_Channel_Name WHERE Date_Time > ? ORDER BY Date_Time ASC",
-                    (last_datetime,)
+                    "SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = ? AND Date_Time > ? ORDER BY Date_Time ASC",
+                    (self.device_id, last_datetime)
                 )
             else:
-                cursor.execute("SELECT * FROM Measure_Result_With_Channel_Name ORDER BY Date_Time ASC")
+                cursor.execute(
+                    "SELECT * FROM Measure_Result_With_Channel_Name WHERE Device_ID = ? ORDER BY Date_Time ASC",
+                    (self.device_id,)
+                )
                 
             rows = cursor.fetchall()
             columns = [desc[0] for desc in cursor.description]
