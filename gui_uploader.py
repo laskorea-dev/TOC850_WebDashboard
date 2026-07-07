@@ -56,7 +56,7 @@ class GUIUploaderApp:
         self.last_query = "N/A"
         self.is_paused = False
         self.last_alert_time = {}
-        self.check_config_timer = 0
+        self.check_config_timer = 9
         self.is_mock = True  # 기본값 mock
         self.supabase_url = ""
         self.supabase_key = ""
