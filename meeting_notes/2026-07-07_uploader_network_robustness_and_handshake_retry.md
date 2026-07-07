@@ -27,6 +27,10 @@
    * `bg_update_site_name_on_supabase` (사이트 한글명 동적 갱신)
    * `bg_check_test_alert_trigger` (테스트 메일 플래그 업데이트 및 리셋)
    * 위의 모든 Supabase 통신 구간에 해당 재시도 및 30초 타임아웃 헬퍼를 적용하여 통신 신뢰도를 극대화했습니다.
+4. **Supabase DDL 불일치 및 400 Bad Request 해결**:
+   * 로컬 SQLite 뷰에는 존재하지만, Supabase `measure_logs_v2` DDL에는 정의되어 있지 않은 `MAXR` 항목을 JSON 데이터 페이로드에서 사전 제외 처리하여 `400 Bad Request` 에러를 최종 제거했습니다.
+5. **컨트롤 버튼 레이아웃 클리핑 해결**:
+   * 해상도 및 배율에 따라 `[즉시 동기화]` 및 `[일시정지]` 버튼이 하단 밖으로 가려지는 문제를 막기 위해 Bottom Controls Frame을 `side=tk.BOTTOM`으로 우선 배치하여 컨트롤 패널의 시인성을 항시 보장했습니다.
 
 ---
 
