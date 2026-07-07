@@ -232,6 +232,7 @@ function App() {
   const [localAlerts, setLocalAlerts] = useState({});
   const [alertEmails, setAlertEmails] = useState('');
   const [telegramChatIds, setTelegramChatIds] = useState('');
+  const [siteNameInput, setSiteNameInput] = useState('');
   const [isPreviewMode, setIsPreviewMode] = useState(false); // 새 대시보드 미리보기 모드 상태
 
   // 알림 수신 직접 등록 모달 상태
@@ -434,7 +435,8 @@ function App() {
       const payload = {
         toc_alert_high: updatedAlerts,
         telegram_chat_ids: telegramIds || updatedAlerts.telegram_chat_ids || '',
-        alert_emails: emails || updatedAlerts.alert_emails || ''
+        alert_emails: emails || updatedAlerts.alert_emails || '',
+        site_name: siteNameInput || siteConfig.site_name
       };
 
       const response = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
@@ -461,7 +463,7 @@ function App() {
       alert(`설정 저장 실패: ${err.message}`);
       return false;
     }
-  }, [siteConfig, loadSiteConfig]);
+  }, [siteConfig, loadSiteConfig, siteNameInput]);
 
   // 알림 수신인 직접 등록 API (POST)
   const registerReceiver = useCallback(async () => {
@@ -823,6 +825,7 @@ function App() {
       const telegrams = siteConfig.toc_alert_high?.telegram_chat_ids || '';
       setAlertEmails(emails);
       setTelegramChatIds(telegrams);
+      setSiteNameInput(siteConfig.site_name || '');
     }
   }, [isConfigModalOpen, isAdminParam, uniqueChannels, siteConfig]);
 
@@ -2296,6 +2299,21 @@ function App() {
                     각 채널별로 경고(빨강)의 임계값(ppm)을 개별 지정할 수 있습니다.<br/>
                     경고 값은 5000 이상으로 맞춰 설정하는 것이 권장됩니다.
                   </p>
+
+                  {/* 지점명(한글명) 입력 필드 */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                      🏢 지점 한글명 설정
+                    </label>
+                    <input
+                      type="text"
+                      className="custom-select"
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      placeholder="대시보드 상단에 표시될 지점명을 입력하세요 (예: 삼양사 인천공장)"
+                      value={siteNameInput}
+                      onChange={(e) => setSiteNameInput(e.target.value)}
+                    />
+                  </div>
 
                   <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
                     <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>

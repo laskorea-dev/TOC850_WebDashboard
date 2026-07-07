@@ -182,133 +182,181 @@ class GUIUploaderApp:
         except Exception as e:
             print(f"Config loading failed: {e}")
 
+    def bind_hover(self, widget, hover_bg, normal_bg):
+        """마우스 호버 시 버튼 배경색 변경 애니메이션 바인딩"""
+        widget.bind("<Enter>", lambda e: widget.config(bg=hover_bg))
+        widget.bind("<Leave>", lambda e: widget.config(bg=normal_bg))
+
+    def get_dest_desc(self):
+        """현재 업로드 목적지 요약 텍스트 반환"""
+        return f"Supabase: {self.supabase_table}" if not self.is_mock else "로컬 모의 적재 (Mock Mode)"
+
     def build_ui(self):
-        # 1. Header Frame (Title & Status Badge)
-        header_frame = tk.Frame(self.root, bg=self.color_bg, pady=8, padx=20)
-        header_frame.pack(fill=tk.X, padx=20)
+        """새로운 B2B 컨셉에 맞춘 프리미엄 다크-블루 모던 GUI 빌드"""
+        # 색상 세트 정의
+        self.color_bg = "#0B0F19"       # 미래지향적 깊은 밤색
+        self.color_card = "#111827"     # Slate-900 카드배경
+        self.color_card_dark = "#030712" # 초고해상도 다크인풋배경
+        self.color_border = "#1F2937"   # Gray-800 경계선
+        self.color_cyan = "#06B6D4"     # Cyan-500 메인 포인트
+        self.color_purple = "#8B5CF6"   # Violet-500 서브 포인트
+        self.color_text_main = "#F3F4F6" # Gray-100 기본 텍스트
+        self.color_text_muted = "#9CA3AF" # Gray-400 보조 텍스트
+        self.color_green = "#10B981"    # Emerald-500 가동 상태
+        self.color_orange = "#F59E0B"   # Amber-500 정지 상태
+        self.color_red = "#EF4444"      # Red-500 오류
+
+        self.root.configure(bg=self.color_bg)
+
+        # Tkinter StringVars로 설정값 필드 매핑
+        self.db_path_var = tk.StringVar(value=self.db_path)
+        self.site_id_var = tk.StringVar(value=self.site_id)
+        self.device_id_var = tk.StringVar(value=self.device_id)
+        self.sub_url_var = tk.StringVar(value=self.supabase_url)
+        self.sub_table_var = tk.StringVar(value=self.supabase_table)
+        self.sub_key_var = tk.StringVar(value=self.supabase_key)
+        self.alert_type_var = tk.StringVar(value=self.alert_type)
+        self.tg_token_var = tk.StringVar(value=self.telegram_bot_token)
+        self.smtp_server_var = tk.StringVar(value=self.smtp_server)
+        self.smtp_port_var = tk.StringVar(value=str(self.smtp_port))
+        self.smtp_user_var = tk.StringVar(value=self.smtp_user)
+        self.smtp_pw_var = tk.StringVar(value=self.smtp_password)
+        self.smtp_tls_var = tk.BooleanVar(value=self.smtp_use_tls)
+
+        # 1. Header Frame (고유 로고/Badge 대체 및 호스트네임)
+        header_frame = tk.Frame(self.root, bg=self.color_bg, pady=12, padx=20)
+        header_frame.pack(fill=tk.X, padx=10)
+        
+        # 가동 상태 캔버스 원형 인디케이터 (글로우 효과 연출)
+        self.status_canvas = tk.Canvas(header_frame, width=20, height=20, bg=self.color_bg, highlightthickness=0)
+        self.status_canvas.pack(side=tk.LEFT, padx=(0, 10))
+        self.status_circle = self.status_canvas.create_oval(2, 2, 18, 18, fill=self.color_green, outline="")
         
         title_label = tk.Label(
             header_frame, 
-            text="TOC B2B CLOUD UPLOADER (Supabase)", 
-            font=("Outfit", 14, "bold"),
+            text="TOC-850 B2B SYNC CLIENT", 
+            font=("Segoe UI", 12, "bold"),
             fg=self.color_cyan, 
             bg=self.color_bg
         )
         title_label.pack(side=tk.LEFT)
         
-        self.status_badge = tk.Label(
+        self.status_label = tk.Label(
             header_frame,
-            text=" 가동 중 (ACTIVE) ",
-            font=("Helvetica", 9, "bold"),
-            bg=self.color_green if not self.is_paused else self.color_orange,
-            fg="#ffffff",
-            padx=10,
-            pady=4,
-            relief=tk.FLAT
+            text="가동 중 (ACTIVE)",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.color_green,
+            bg=self.color_bg
         )
-        self.status_badge.pack(side=tk.RIGHT)
+        self.status_label.pack(side=tk.LEFT, padx=(8, 0))
+        
+        self.device_info_label = tk.Label(
+            header_frame,
+            text=f"PC: {self.device_id}",
+            font=("Consolas", 9),
+            fg=self.color_text_muted,
+            bg=self.color_bg
+        )
+        self.device_info_label.pack(side=tk.RIGHT)
 
-        # 구분선
+        # 얇은 구분 띠
         sep = tk.Frame(self.root, height=1, bg=self.color_border)
-        sep.pack(fill=tk.X, padx=20)
+        sep.pack(fill=tk.X, padx=20, pady=(0, 10))
 
-        # 2. Config Frame (사용자 설정 관리 판넬)
-        config_frame = tk.Frame(self.root, bg=self.color_card, bd=1, relief=tk.FLAT, pady=10)
-        config_frame.pack(fill=tk.X, padx=20, pady=10)
+        # 2. Stats Card Frame (가동 대시보드 인포메이션)
+        stats_frame = tk.Frame(self.root, bg=self.color_card, bd=0, highlightthickness=1, highlightbackground=self.color_border, pady=12, padx=15)
+        stats_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
         
-        # SQLite DB 경로 입력 및 탐색
-        db_label = tk.Label(config_frame, text="연동 SQLite DB 파일 경로", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
-        db_label.grid(row=0, column=0, sticky=tk.W, padx=15, pady=(0, 2))
+        stats_frame.columnconfigure(0, weight=1)
+        stats_frame.columnconfigure(1, weight=1)
         
-        self.db_path_var = tk.StringVar(value=self.db_path)
-        db_entry = tk.Entry(config_frame, textvariable=self.db_path_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=1, relief=tk.SOLID, width=54)
-        db_entry.grid(row=1, column=0, padx=(15, 10), pady=(0, 5), sticky=tk.W)
+        site_title = tk.Label(stats_frame, text="연동 지점 코드 (Site ID)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
+        site_title.grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
+        self.site_val_label = tk.Label(stats_frame, text=self.site_id, font=("Segoe UI", 11, "bold"), fg=self.color_text_main, bg=self.color_card)
+        self.site_val_label.grid(row=1, column=0, sticky=tk.W, pady=(0, 8))
         
-        btn_browse = tk.Button(config_frame, text="찾아보기...", font=("Helvetica", 8), bg=self.color_border, fg=self.color_text_main, activebackground=self.color_cyan, relief=tk.GROOVE, command=self.browse_db_file)
-        btn_browse.grid(row=1, column=1, padx=(0, 15), pady=(0, 5), sticky=tk.W)
+        timer_title = tk.Label(stats_frame, text="다음 자동 동기화 카운트다운", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
+        timer_title.grid(row=0, column=1, sticky=tk.W, pady=(0, 2))
+        self.timer_val_label = tk.Label(stats_frame, text="15분 00초 남음", font=("Segoe UI", 11, "bold"), fg=self.color_cyan, bg=self.color_card)
+        self.timer_val_label.grid(row=1, column=1, sticky=tk.W, pady=(0, 8))
         
-        # 계측기 장비 고유 ID (Device ID) 설정
-        device_label = tk.Label(config_frame, text="계측 장비 고유 ID 식별자 (Device ID)", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
-        device_label.grid(row=2, column=0, sticky=tk.W, padx=15, pady=(0, 2))
-        
-        self.device_id_var = tk.StringVar(value=self.device_id)
-        device_entry = tk.Entry(config_frame, textvariable=self.device_id_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=1, relief=tk.SOLID, width=54)
-        device_entry.grid(row=3, column=0, padx=(15, 10), pady=(0, 5), sticky=tk.W)
-        
-        btn_save_device = tk.Button(config_frame, text="장비ID 저장", font=("Helvetica", 8), bg=self.color_border, fg=self.color_text_main, activebackground=self.color_cyan, relief=tk.GROOVE, command=self.update_device_id)
-        btn_save_device.grid(row=3, column=1, padx=(0, 15), pady=(0, 5), sticky=tk.W)
-        
-        # Supabase Project URL 설정
-        sub_url_label = tk.Label(config_frame, text="Supabase Project URL (https://xxxx.supabase.co)", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
-        sub_url_label.grid(row=4, column=0, sticky=tk.W, padx=15, pady=(0, 2))
-        
-        self.sub_url_var = tk.StringVar(value=self.supabase_url)
-        sub_url_entry = tk.Entry(config_frame, textvariable=self.sub_url_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=1, relief=tk.SOLID, width=54)
-        sub_url_entry.grid(row=5, column=0, padx=(15, 10), pady=(0, 5), sticky=tk.W)
-        
-        btn_save_url = tk.Button(config_frame, text="URL 저장", font=("Helvetica", 8), bg=self.color_border, fg=self.color_text_main, activebackground=self.color_cyan, relief=tk.GROOVE, command=self.update_supabase_url)
-        btn_save_url.grid(row=5, column=1, padx=(0, 15), pady=(0, 5), sticky=tk.W)
+        last_success_title = tk.Label(stats_frame, text="최근 동기화 완료 시각", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
+        last_success_title.grid(row=2, column=0, sticky=tk.W, pady=(0, 2))
+        self.last_success_val_label = tk.Label(stats_frame, text=self.last_upload_time, font=("Consolas", 10), fg=self.color_text_main, bg=self.color_card)
+        self.last_success_val_label.grid(row=3, column=0, sticky=tk.W)
 
-        # [신규] Supabase Table Name 설정 (사용자가 생성한 테이블 스펠링 매핑 가능!)
-        sub_table_label = tk.Label(config_frame, text="Supabase 테이블 이름 (Database Table Name)", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
-        sub_table_label.grid(row=6, column=0, sticky=tk.W, padx=15, pady=(0, 2))
-        
-        self.sub_table_var = tk.StringVar(value=self.supabase_table)
-        sub_table_entry = tk.Entry(config_frame, textvariable=self.sub_table_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=1, relief=tk.SOLID, width=54)
-        sub_table_entry.grid(row=7, column=0, padx=(15, 10), pady=(0, 5), sticky=tk.W)
-        
-        btn_save_table = tk.Button(config_frame, text="테이블 저장", font=("Helvetica", 8), bg=self.color_border, fg=self.color_text_main, activebackground=self.color_cyan, relief=tk.GROOVE, command=self.update_supabase_table)
-        btn_save_table.grid(row=7, column=1, padx=(0, 15), pady=(0, 5), sticky=tk.W)
+        dest_title = tk.Label(stats_frame, text="동기화 목적지 정보", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
+        dest_title.grid(row=2, column=1, sticky=tk.W, pady=(0, 2))
+        self.dest_val_label = tk.Label(stats_frame, text=self.get_dest_desc(), font=("Segoe UI", 9, "bold"), fg=self.color_cyan if not self.is_mock else self.color_purple, bg=self.color_card, justify=tk.LEFT)
+        self.dest_val_label.grid(row=3, column=1, sticky=tk.W)
 
-        # Supabase Anon Key 설정
-        sub_key_label = tk.Label(config_frame, text="Supabase Anon API Key", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
-        sub_key_label.grid(row=8, column=0, sticky=tk.W, padx=15, pady=(0, 2))
+        # 3. Settings LabelFrame (동기화 설정 영역)
+        self.settings_frame = tk.LabelFrame(self.root, text=" ⚙️ 동기화 및 알림 설정 ", font=("Segoe UI", 9, "bold"), bg=self.color_bg, fg=self.color_cyan, bd=1, relief=tk.SOLID, padx=15, pady=10)
+        self.settings_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        self.settings_frame.columnconfigure(0, weight=1)
         
-        self.sub_key_var = tk.StringVar(value=self.supabase_key)
-        sub_key_entry = tk.Entry(config_frame, textvariable=self.sub_key_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=1, relief=tk.SOLID, width=54)
-        sub_key_entry.grid(row=9, column=0, padx=(15, 10), pady=(0, 5), sticky=tk.W)
+        # SQLite DB 경로 입력
+        db_label = tk.Label(self.settings_frame, text="로컬 SQLite DB 파일 경로 (db_path)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        db_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
         
-        btn_save_key = tk.Button(config_frame, text="Key 저장", font=("Helvetica", 8), bg=self.color_border, fg=self.color_text_main, activebackground=self.color_cyan, relief=tk.GROOVE, command=self.update_supabase_key)
-        btn_save_key.grid(row=9, column=1, padx=(0, 15), pady=(0, 5), sticky=tk.W)
+        db_input_frame = tk.Frame(self.settings_frame, bg=self.color_bg)
+        db_input_frame.grid(row=1, column=0, sticky=tk.EW, pady=(0, 10))
+        db_input_frame.columnconfigure(0, weight=1)
+        
+        db_entry = tk.Entry(db_input_frame, textvariable=self.db_path_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        db_entry.grid(row=0, column=0, sticky=tk.EW, ipady=4, padx=(0, 8))
+        
+        btn_browse = tk.Button(db_input_frame, text="찾기...", font=("Segoe UI", 8, "bold"), bg=self.color_card, fg=self.color_text_main, activebackground=self.color_border, bd=0, relief=tk.FLAT, padx=10, command=self.browse_db_file)
+        btn_browse.grid(row=0, column=1, sticky=tk.E)
+        self.bind_hover(btn_browse, self.color_border, self.color_card)
+        
+        # Site ID 지점 설정 입력
+        site_id_label = tk.Label(self.settings_frame, text="지점 식별자 코드 (site_id - 'auto' 지정 시 호스트네임으로 매핑)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        site_id_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 2))
+        
+        site_id_entry = tk.Entry(self.settings_frame, textvariable=self.site_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        site_id_entry.grid(row=3, column=0, sticky=tk.EW, ipady=4, pady=(0, 8))
 
-        # B2B 연동 상태 안내 정보
-        dest_label = tk.Label(config_frame, text="실시간 클라우드 DB 연결 타겟", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
-        dest_label.grid(row=10, column=0, sticky=tk.W, padx=15, pady=(2, 2))
-        
-        dest_desc = f"Supabase Cloud [Table: '{self.supabase_table}'] (ID: {self.device_id})" if not self.is_mock else f"Local Simulated CSV [dashboard/public/mock_google_sheet.csv] (ID: {self.device_id})"
-        self.dest_info = tk.Label(config_frame, text=dest_desc, font=("Helvetica", 9, "bold"), fg=self.color_cyan if not self.is_mock else self.color_purple, bg=self.color_card)
-        self.dest_info.grid(row=11, column=0, columnspan=2, sticky=tk.W, padx=15, pady=(0, 2))
-
-        # 3. Status Monitor Frame (실시간 모니터링 판넬)
-        monitor_frame = tk.Frame(self.root, bg=self.color_card, bd=1, relief=tk.FLAT, pady=10)
-        monitor_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
-        
-        # 타이머 카운트다운 표시기
-        self.timer_label = tk.Label(
-            monitor_frame, 
-            text="다음 자동 동기화까지: 15분 00초 남음", 
-            font=("Helvetica", 10, "bold"), 
-            fg=self.color_cyan, 
-            bg=self.color_card
+        # 상세 설정 펼치기 트리거 버튼 (Collapsible Trigger)
+        self.adv_trigger_btn = tk.Button(
+            self.settings_frame,
+            text="➕ 상세 인프라 설정 표시 (Supabase/SMTP/Telegram)",
+            font=("Segoe UI", 8, "bold"),
+            fg=self.color_text_muted,
+            bg=self.color_bg,
+            activeforeground=self.color_cyan,
+            activebackground=self.color_bg,
+            bd=0,
+            cursor="hand2",
+            command=self.toggle_advanced_settings
         )
-        self.timer_label.grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=15, pady=(0, 6))
-        
-        # 최근 업로드 시간
-        self.last_upload_label = tk.Label(
-            monitor_frame,
-            text=f"최근 동기화 성공 일시:  {self.last_upload_time}",
-            font=("Helvetica", 9),
-            fg=self.color_text_main,
-            bg=self.color_card
+        self.adv_trigger_btn.grid(row=4, column=0, sticky=tk.W, pady=(5, 5))
+
+        # 상세 인프라 설정 컨테이너 프레임 (초기에는 숨김 상태)
+        self.adv_frame = tk.Frame(self.settings_frame, bg=self.color_bg)
+
+        # 원클릭 환경설정 일괄 영구 저장 버튼
+        self.btn_save_all = tk.Button(
+            self.settings_frame,
+            text="💾 모든 설정 및 자격 증명 저장",
+            font=("Segoe UI", 9, "bold"),
+            bg=self.color_cyan,
+            fg=self.color_bg,
+            activebackground="#0891b2",
+            activeforeground=self.color_bg,
+            bd=0,
+            pady=6,
+            command=self.save_config
         )
-        self.last_upload_label.grid(row=1, column=0, columnspan=2, sticky=tk.W, padx=15, pady=(0, 6))
-        
-        # 최근 전송 쿼리 표시창
-        query_title = tk.Label(monitor_frame, text="최근 업로드 증분 쿼리", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
-        query_title.grid(row=2, column=0, sticky=tk.W, padx=15, pady=(2, 2))
+        self.btn_save_all.grid(row=5, column=0, sticky=tk.EW, pady=(10, 5))
+        self.bind_hover(self.btn_save_all, "#22d3ee", self.color_cyan)
+
+        # 4. Recent SQL Query Box
+        query_title = tk.Label(self.root, text="최근 업로드 증분 쿼리 (Consolas Query Log)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        query_title.pack(anchor=tk.W, padx=20, pady=(2, 2))
         
         self.query_text = tk.Label(
-            monitor_frame, 
+            self.root, 
             text=self.last_query, 
             font=("Consolas", 8), 
             fg=self.color_text_muted, 
@@ -319,15 +367,15 @@ class GUIUploaderApp:
             pady=4,
             relief=tk.SOLID,
             bd=1,
-            width=78
+            highlightthickness=0
         )
-        self.query_text.grid(row=3, column=0, columnspan=2, sticky=tk.W, padx=15, pady=(0, 2))
+        self.query_text.pack(fill=tk.X, padx=20, pady=(0, 10))
 
-        # 4. Logger Frame (실시간 가동 로그)
+        # 5. Logger Frame (가동 정보 로그)
         logger_frame = tk.Frame(self.root, bg=self.color_bg)
         logger_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 10))
         
-        log_label = tk.Label(logger_frame, text="실시간 가동 로그", font=("Helvetica", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        log_label = tk.Label(logger_frame, text="실시간 가동 로그 (Live System Logs)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
         log_label.pack(anchor=tk.W, pady=(0, 2))
         
         scrollbar = tk.Scrollbar(logger_frame)
@@ -338,15 +386,16 @@ class GUIUploaderApp:
             height=3, 
             bg=self.color_card_dark, 
             fg=self.color_text_main, 
-            font=("Consolas", 9),
-            bd=1,
-            relief=tk.SOLID,
+            font=("Consolas", 8),
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=self.color_border,
             yscrollcommand=scrollbar.set
         )
         self.log_viewer.pack(fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.log_viewer.yview)
 
-        # 5. Buttons Control Frame (Bottom)
+        # 6. Bottom Controls Frame
         btn_frame = tk.Frame(self.root, bg=self.color_bg)
         btn_frame.pack(fill=tk.X, padx=20, pady=(0, 15))
         
@@ -354,30 +403,204 @@ class GUIUploaderApp:
         self.btn_pause = tk.Button(
             btn_frame, 
             textvariable=self.btn_pause_text, 
-            font=("Helvetica", 9, "bold"), 
+            font=("Segoe UI", 9, "bold"), 
             bg=self.color_orange, 
             fg="#ffffff", 
-            relief=tk.GROOVE, 
-            width=18,
-            pady=6,
+            bd=0,
+            width=20,
+            pady=7,
             command=self.toggle_pause
         )
         self.btn_pause.pack(side=tk.LEFT)
-        self.update_status_badge()
-        self.update_pause_button_style()
+        self.bind_hover(self.btn_pause, "#fbbf24", self.color_orange)
         
-        btn_sync_now = tk.Button(
+        self.btn_sync_now = tk.Button(
             btn_frame, 
-            text="즉시 전송 ⚡", 
-            font=("Helvetica", 9, "bold"), 
+            text="즉시 동기화 🔄", 
+            font=("Segoe UI", 9, "bold"), 
             bg=self.color_cyan, 
             fg=self.color_bg, 
-            relief=tk.GROOVE, 
-            width=18,
-            pady=6,
+            bd=0,
+            width=20,
+            pady=7,
             command=self.trigger_sync_now
         )
-        btn_sync_now.pack(side=tk.RIGHT)
+        self.btn_sync_now.pack(side=tk.RIGHT)
+        self.bind_hover(self.btn_sync_now, "#22d3ee", self.color_cyan)
+
+        # 디폴트 윈도우 사이즈 지정 및 초기화
+        self.show_advanced = False
+        self.root.geometry("640x545")
+        self.update_status_badge()
+        self.update_pause_button_style()
+
+    def toggle_advanced_settings(self):
+        """상세 설정 프레임을 토글하고 창 크기를 동적으로 조절합니다."""
+        self.show_advanced = not self.show_advanced
+        if self.show_advanced:
+            self.adv_trigger_btn.configure(text="➖ 상세 인프라 설정 숨기기")
+            self.build_advanced_ui()
+            self.adv_frame.grid(row=4, column=0, columnspan=2, sticky=tk.NSEW, pady=(5, 5))
+            self.root.geometry("640x785")
+        else:
+            self.adv_trigger_btn.configure(text="➕ 상세 인프라 설정 표시 (Supabase/SMTP/Telegram)")
+            self.adv_frame.grid_forget()
+            self.root.geometry("640x545")
+
+    def build_advanced_ui(self):
+        """숨겨진 상세 연결 및 알림 자격증명 UI 동적 생성"""
+        for widget in self.adv_frame.winfo_children():
+            widget.destroy()
+
+        self.adv_frame.columnconfigure(0, weight=1)
+        self.adv_frame.columnconfigure(1, weight=1)
+
+        # Supabase 헤더
+        s_title = tk.Label(self.adv_frame, text="⚡ Supabase 인프라 연결 설정", font=("Segoe UI", 8, "bold"), fg=self.color_cyan, bg=self.color_bg)
+        s_title.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(5, 5))
+
+        url_lbl = tk.Label(self.adv_frame, text="Supabase URL", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        url_lbl.grid(row=1, column=0, sticky=tk.W)
+        url_ent = tk.Entry(self.adv_frame, textvariable=self.sub_url_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        url_ent.grid(row=2, column=0, sticky=tk.EW, padx=(0, 10), ipady=3)
+
+        tbl_lbl = tk.Label(self.adv_frame, text="Table Name", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        tbl_lbl.grid(row=1, column=1, sticky=tk.W)
+        tbl_ent = tk.Entry(self.adv_frame, textvariable=self.sub_table_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        tbl_ent.grid(row=2, column=1, sticky=tk.EW, ipady=3)
+
+        key_lbl = tk.Label(self.adv_frame, text="Supabase Anon / Service Role Key", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        key_lbl.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(3, 0))
+        key_ent = tk.Entry(self.adv_frame, textvariable=self.sub_key_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        key_ent.grid(row=4, column=0, columnspan=2, sticky=tk.EW, ipady=3, pady=(0, 8))
+
+        # 알림 서버 헤더
+        a_title = tk.Label(self.adv_frame, text="🔔 실시간 알림 서버 설정", font=("Segoe UI", 8, "bold"), fg=self.color_cyan, bg=self.color_bg)
+        a_title.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(5, 5))
+
+        type_lbl = tk.Label(self.adv_frame, text="알림 전송 수단 (alert_type)", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        type_lbl.grid(row=6, column=0, sticky=tk.W)
+        
+        type_frame = tk.Frame(self.adv_frame, bg=self.color_bg)
+        type_frame.grid(row=7, column=0, sticky=tk.W, padx=(0, 10), pady=(0, 8))
+        
+        rb_tg = tk.Radiobutton(type_frame, text="텔레그램", variable=self.alert_type_var, value="telegram", fg=self.color_text_main, bg=self.color_bg, selectcolor=self.color_card_dark, activebackground=self.color_bg, activeforeground=self.color_text_main)
+        rb_tg.pack(side=tk.LEFT, padx=(0, 10))
+        rb_em = tk.Radiobutton(type_frame, text="이메일", variable=self.alert_type_var, value="email", fg=self.color_text_main, bg=self.color_bg, selectcolor=self.color_card_dark, activebackground=self.color_bg, activeforeground=self.color_text_main)
+        rb_em.pack(side=tk.LEFT)
+
+        tg_lbl = tk.Label(self.adv_frame, text="텔레그램 봇 토큰 (telegram_bot_token)", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        tg_lbl.grid(row=6, column=1, sticky=tk.W)
+        tg_ent = tk.Entry(self.adv_frame, textvariable=self.tg_token_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        tg_ent.grid(row=7, column=1, sticky=tk.EW, ipady=3, pady=(0, 8))
+
+        # SMTP Host & Port
+        smtp_lbl = tk.Label(self.adv_frame, text="SMTP 서버 주소 / 포트", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        smtp_lbl.grid(row=8, column=0, sticky=tk.W)
+        
+        smtp_box = tk.Frame(self.adv_frame, bg=self.color_bg)
+        smtp_box.grid(row=9, column=0, sticky=tk.EW, padx=(0, 10), pady=(0, 5))
+        smtp_box.columnconfigure(0, weight=3)
+        smtp_box.columnconfigure(1, weight=1)
+        
+        smtp_srv = tk.Entry(smtp_box, textvariable=self.smtp_server_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        smtp_srv.grid(row=0, column=0, sticky=tk.EW, padx=(0, 5), ipady=3)
+        smtp_prt = tk.Entry(smtp_box, textvariable=self.smtp_port_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        smtp_prt.grid(row=0, column=1, sticky=tk.EW, ipady=3)
+
+        tls_chk = tk.Checkbutton(self.adv_frame, text="TLS 사용", variable=self.smtp_tls_var, fg=self.color_text_main, bg=self.color_bg, selectcolor=self.color_card_dark, activebackground=self.color_bg, activeforeground=self.color_text_main)
+        tls_chk.grid(row=9, column=1, sticky=tk.W, pady=(0, 5))
+
+        # SMTP User & Password
+        user_lbl = tk.Label(self.adv_frame, text="SMTP 계정명", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        user_lbl.grid(row=10, column=0, sticky=tk.W)
+        user_ent = tk.Entry(self.adv_frame, textvariable=self.smtp_user_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        user_ent.grid(row=11, column=0, sticky=tk.EW, padx=(0, 10), ipady=3)
+
+        pw_lbl = tk.Label(self.adv_frame, text="SMTP 비밀번호", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
+        pw_lbl.grid(row=10, column=1, sticky=tk.W)
+        pw_ent = tk.Entry(self.adv_frame, textvariable=self.smtp_pw_var, show="*", font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        pw_ent.grid(row=11, column=1, sticky=tk.EW, ipady=3)
+
+    def save_config(self):
+        """현재 UI상에 입력된 모든 설정을 uploader_config.json 파일에 영구 저장합니다."""
+        try:
+            db_path = self.db_path_var.get().strip()
+            site_id = self.site_id_var.get().strip()
+            supabase_url = self.sub_url_var.get().strip()
+            supabase_table = self.sub_table_var.get().strip()
+            supabase_key = self.sub_key_var.get().strip()
+            alert_type = self.alert_type_var.get().strip()
+            telegram_bot_token = self.tg_token_var.get().strip()
+            smtp_server = self.smtp_server_var.get().strip()
+            smtp_port = int(self.smtp_port_var.get().strip() or "587")
+            smtp_user = self.smtp_user_var.get().strip()
+            smtp_password = self.smtp_pw_var.get().strip()
+            smtp_use_tls = self.smtp_tls_var.get()
+
+            if not db_path:
+                messagebox.showerror("저장 실패", "SQLite DB 파일 경로는 필수 입력 항목입니다.")
+                return
+            if not site_id:
+                messagebox.showerror("저장 실패", "지점 식별자(Site ID)는 필수 입력 항목입니다.")
+                return
+
+            config_data = {
+                "db_path": db_path,
+                "google_sheet_name": self.sheet_name,
+                "supabase_table": supabase_table,
+                "site_id": site_id,
+                "device_id": self.device_id,
+                "interval_seconds": self.interval_seconds,
+                "last_datetime": self.last_upload_time if self.last_upload_time != "None (First Run)" else "",
+                "last_query": self.last_query,
+                "is_paused": self.is_paused,
+                "is_mock": self.is_mock,
+                "supabase_url": supabase_url,
+                "supabase_key": supabase_key,
+                "smtp_server": smtp_server,
+                "smtp_port": smtp_port,
+                "smtp_user": smtp_user,
+                "smtp_password": smtp_password,
+                "smtp_use_tls": smtp_use_tls,
+                "alert_type": alert_type,
+                "telegram_bot_token": telegram_bot_token
+            }
+
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, indent=4, ensure_ascii=False)
+
+            self.db_path = db_path
+            self.site_id = site_id
+            self.supabase_url = supabase_url
+            self.supabase_table = supabase_table
+            self.supabase_key = supabase_key
+            self.alert_type = alert_type
+            self.telegram_bot_token = telegram_bot_token
+            self.smtp_server = smtp_server
+            self.smtp_port = smtp_port
+            self.smtp_user = smtp_user
+            self.smtp_password = smtp_password
+            self.smtp_use_tls = smtp_use_tls
+
+            # Alert Sender 모듈 재구축
+            self.alert_sender = get_alert_sender(
+                self.alert_type,
+                smtp_server=self.smtp_server,
+                smtp_port=self.smtp_port,
+                smtp_user=self.smtp_user,
+                smtp_password=self.smtp_password,
+                smtp_use_tls=self.smtp_use_tls,
+                telegram_bot_token=self.telegram_bot_token,
+                log_queue=self.msg_queue
+            )
+
+            self.check_mock_status()
+            self.refresh_destination_label()
+            self.log_to_viewer("[설정 저장] 모든 설정을 uploader_config.json에 성공적으로 저장하고 엔진에 즉시 반영했습니다.")
+            messagebox.showinfo("설정 완료", "모든 설정 정보가 성공적으로 저장 및 적용되었습니다.")
+        except Exception as e:
+            messagebox.showerror("저장 실패", f"설정 파일 저장 중 오류가 발생했습니다:\n{e}")
 
     def browse_db_file(self):
         """SQLite DB 파일 찾아보기 브라우저 기동"""
@@ -390,61 +613,23 @@ class GUIUploaderApp:
         if file_path:
             self.db_path = file_path
             self.db_path_var.set(file_path)
-            self.log_to_viewer(f"[설정 변경] 연동 DB 경로가 변경되었습니다: {file_path}")
-
-    def update_device_id(self):
-        """사용자가 입력한 장비 고유 ID(Device ID) 반영"""
-        new_device_id = self.device_id_var.get().strip()
-        if new_device_id:
-            self.device_id = new_device_id
-            self.log_to_viewer(f"[설정 변경] 계측 장비 ID 식별자가 변경되었습니다: '{new_device_id}'")
-            self.refresh_destination_label()
-            messagebox.showinfo("설정 적용", f"장비 고유 ID가 '{new_device_id}'로 이번 세션에 적용되었습니다.")
-        else:
-            messagebox.showerror("에러", "장비 ID는 빈칸으로 지정할 수 없습니다.")
-
-    def update_supabase_url(self):
-        """사용자가 입력한 Supabase URL 반영 및 MOCK 모드 분기 판단"""
-        new_url = self.sub_url_var.get().strip()
-        self.supabase_url = new_url
-        self.log_to_viewer(f"[설정 변경] Supabase URL이 업데이트되었습니다: '{new_url}'")
-        self.check_mock_status()
-        self.refresh_destination_label()
-        messagebox.showinfo("설정 적용", "Supabase Project URL이 이번 세션에 적용되었습니다.")
-
-    def update_supabase_table(self):
-        """사용자가 입력한 Supabase 테이블 이름 반영"""
-        new_table = self.sub_table_var.get().strip()
-        if new_table:
-            self.supabase_table = new_table
-            self.log_to_viewer(f"[설정 변경] Supabase 테이블 이름이 업데이트되었습니다: '{new_table}'")
-            self.refresh_destination_label()
-            messagebox.showinfo("설정 적용", f"테이블 이름이 '{new_table}'로 이번 세션에 적용되었습니다.")
-        else:
-            messagebox.showerror("에러", "테이블 이름은 빈칸으로 지정할 수 없습니다.")
-
-    def update_supabase_key(self):
-        """사용자가 입력한 Supabase Key 반영 및 MOCK 모드 분기 판단"""
-        new_key = self.sub_key_var.get().strip()
-        self.supabase_key = new_key
-        self.log_to_viewer("[설정 변경] Supabase Anon Key가 업데이트되었습니다.")
-        self.check_mock_status()
-        self.refresh_destination_label()
-        messagebox.showinfo("설정 적용", "Supabase Anon API Key가 이번 세션에 적용되었습니다.")
+            self.log_to_viewer(f"[설정 변경] 연동 DB 경로가 임시 변경되었습니다: {file_path}")
 
     def check_mock_status(self):
         """Supabase 접속 정보 충족 유무에 따라 실시간 런타임 전송 모드 토글"""
         if self.supabase_url and self.supabase_key:
             self.is_mock = False
-            self.log_to_viewer("[알림] Supabase 연결 설정이 완료되어 실제 실시간 클라우드 모드로 전환되었습니다!")
+            self.log_to_viewer("[알림] Supabase 연결 설정이 충족되어 실시간 클라우드 모드로 작동합니다.")
         else:
             self.is_mock = True
-            self.log_to_viewer("[알림] Supabase 설정이 비어있어 로컬 시뮬레이션(Mock) 모드로 대기합니다.")
+            self.log_to_viewer("[알림] Supabase 접속 설정이 비어있어 로컬 모의 적재(Mock) 모드로 대기합니다.")
 
     def refresh_destination_label(self):
         """GUI 상에 표시되는 목적지 안내 라벨 실시간 갱신"""
-        dest_desc = f"Supabase Cloud [Table: '{self.supabase_table}'] (ID: {self.device_id})" if not self.is_mock else f"Local Simulated CSV [dashboard/public/mock_google_sheet.csv] (ID: {self.device_id})"
-        self.dest_info.configure(text=dest_desc)
+        if hasattr(self, 'dest_val_label'):
+            self.dest_val_label.configure(text=self.get_dest_desc())
+        if hasattr(self, 'site_val_label'):
+            self.site_val_label.configure(text=self.site_id)
 
     def log_to_viewer(self, message):
         """UI 가동 로그 창에 실시간 정보 추가"""
@@ -456,7 +641,6 @@ class GUIUploaderApp:
         self.log_viewer.see(tk.END)
         self.log_viewer.configure(state=tk.DISABLED)
         
-        # uploader.log 파일 백업 누적
         try:
             with open(LOG_PATH, "a", encoding="utf-8") as f:
                 f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
@@ -464,23 +648,24 @@ class GUIUploaderApp:
             pass
 
     def update_status_badge(self):
-        """가동 중 / 일시정지 배지 데코레이션 갱신"""
+        """가동 중 / 일시정지 배지 인디케이터 색상 갱신"""
+        if not hasattr(self, 'status_canvas') or not hasattr(self, 'status_label'):
+            return
         if self.is_paused:
-            self.status_badge.configure(
-                text=" 일시정지 (PAUSED) ",
-                bg=self.color_orange
-            )
+            self.status_canvas.itemconfig(self.status_circle, fill=self.color_orange)
+            self.status_label.configure(text="일시정지 (PAUSED)", fg=self.color_orange)
         else:
-            self.status_badge.configure(
-                text=" 가동 중 (ACTIVE) ",
-                bg=self.color_green
-            )
+            self.status_canvas.itemconfig(self.status_circle, fill=self.color_green)
+            self.status_label.configure(text="가동 중 (ACTIVE)", fg=self.color_green)
 
     def update_pause_button_style(self):
         """일시정지 버튼 토글 스타일 갱신"""
+        if not hasattr(self, 'btn_pause'):
+            return
         if self.is_paused:
             self.btn_pause_text.set("업로드 재개 ▶")
             self.btn_pause.configure(bg=self.color_green)
+            self.bind_hover(self.btn_pause, "#34d399", self.color_green)
         else:
             self.btn_pause_text.set("일시정지 ⏸")
             self.btn_pause.configure(bg=self.color_orange)
@@ -1106,8 +1291,8 @@ class GUIUploaderApp:
                     latest_time, query = content
                     self.last_upload_time = latest_time
                     self.last_query = query
-                    self.last_upload_label.configure(
-                        text=f"최근 동기화 성공 일시:  {latest_time}"
+                    self.last_success_val_label.configure(
+                        text=latest_time
                     )
                     self.log_to_viewer(f"데이터 동기화 완료! 장비 ID: {self.device_id} | 최신 측정 시간: {latest_time}")
                     self._auto_minimize_if_startup()
