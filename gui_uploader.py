@@ -142,7 +142,7 @@ class GUIUploaderApp:
                 
                 # site_name 로드
                 self.site_name = config.get("site_name", "")
-                if not self.site_name or self.site_name.strip() == "":
+                if not self.site_name or self.site_name.strip() == "" or self.site_name.lower() == "auto":
                     self.site_name = self.site_id
 
                 # device_id는 항상 물리 PC 호스트네임 자동 획득
@@ -216,6 +216,7 @@ class GUIUploaderApp:
 
         # Tkinter StringVars로 설정값 필드 매핑
         self.db_path_var = tk.StringVar(value=self.db_path)
+        self.site_id_var = tk.StringVar(value=self.site_id)
         self.device_id_var = tk.StringVar(value=self.device_id)
         self.site_name_var = tk.StringVar(value=self.site_name)
         self.interval_var = tk.StringVar(value=str(self.interval_seconds // 60))
@@ -327,12 +328,12 @@ class GUIUploaderApp:
         site_name_entry = tk.Entry(self.settings_frame, textvariable=self.site_name_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
         site_name_entry.grid(row=3, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
 
-        # Device ID 장치명 (읽기 전용)
-        device_id_label = tk.Label(self.settings_frame, text="인식된 장치명 (Device ID - 읽기 전용)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
-        device_id_label.grid(row=2, column=1, sticky=tk.W, pady=(0, 2), padx=(5, 0))
+        # Site ID 지점/기기 식별자 ID (수정 가능)
+        site_id_label = tk.Label(self.settings_frame, text="지점/기기 식별자 ID (Site ID - 고유값)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        site_id_label.grid(row=2, column=1, sticky=tk.W, pady=(0, 2), padx=(5, 0))
         
-        device_id_entry = tk.Entry(self.settings_frame, textvariable=self.device_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_muted, bd=0, highlightthickness=1, highlightbackground=self.color_border, state="readonly")
-        device_id_entry.grid(row=3, column=1, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(5, 0))
+        site_id_entry = tk.Entry(self.settings_frame, textvariable=self.site_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        site_id_entry.grid(row=3, column=1, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(5, 0))
 
         # 동기화 주기 (분) 입력
         interval_label = tk.Label(self.settings_frame, text="자동 동기화 주기 (분 단위)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
@@ -646,6 +647,7 @@ class GUIUploaderApp:
         try:
             db_path = self.db_path_var.get().strip()
             site_name = self.site_name_var.get().strip()
+            site_id = self.site_id_var.get().strip()
             
             # 동기화 주기 파싱 및 검증
             try:
@@ -677,12 +679,17 @@ class GUIUploaderApp:
             if not site_name:
                 messagebox.showerror("저장 실패", "사이트 이름은 필수 입력 항목입니다.")
                 return
+            if not site_id:
+                messagebox.showerror("저장 실패", "지점/기기 식별자 ID는 필수 입력 항목입니다.")
+                return
+
+            self.site_id = site_id
 
             config_data = {
                 "db_path": db_path,
                 "google_sheet_name": self.sheet_name,
                 "supabase_table": supabase_table,
-                "site_id": self.site_id,
+                "site_id": site_id,
                 "device_id": self.device_id,
                 "site_name": site_name,
                 "interval_seconds": interval_seconds,
