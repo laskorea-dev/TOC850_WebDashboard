@@ -259,6 +259,8 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      
+      // 1단계: 신규 device_config 테이블 조회
       const configEndpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/device_config`
         : `${baseUrl}/rest/v1/device_config`;
@@ -301,21 +303,57 @@ function App() {
             isValidDevice: true
           });
           return;
-        } else {
-          // 조회 결과가 빈 경우 -> 등록되지 않은 장치로 판단
-          setSiteConfig(prev => ({
-            ...prev,
+        }
+      }
+
+      // 2단계: 하위 호환을 위해 site_config_v2 테이블 추가 조회
+      const legacyEndpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/site_config_v2`
+        : `${baseUrl}/rest/v1/site_config_v2`;
+
+      const legacyFilter = `site_id.ilike.${encodeURIComponent(siteId || siteSearchTerm)}`;
+
+      const legacyResponse = await fetch(`${legacyEndpoint}?${legacyFilter}`, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        }
+      });
+
+      if (legacyResponse.ok) {
+        const legacyConfList = await legacyResponse.json();
+        if (Array.isArray(legacyConfList) && legacyConfList.length > 0) {
+          const conf = legacyConfList[0];
+          let alertObj = null;
+          if (conf.toc_alert_high) {
+            try {
+              alertObj = typeof conf.toc_alert_high === 'string'
+                ? JSON.parse(conf.toc_alert_high)
+                : conf.toc_alert_high;
+            } catch (e) {
+              console.error("임계값 JSON 파싱 에러:", e);
+            }
+          }
+          setSiteConfig({
+            device_id: conf.site_id, // site_id로 폴백 매핑
+            site_id: conf.site_id,
+            passcode: conf.passcode || '850',
+            site_name: conf.site_name || 'LAS TOC-850 온라인 계측 모니터링 대시보드',
+            is_active: conf.is_active !== false,
+            alert_emails: conf.alert_emails || '',
+            telegram_chat_ids: conf.telegram_chat_ids || '',
+            toc_alert_high: alertObj,
             loading: false,
-            isValidDevice: false
-          }));
+            isValidDevice: true // 구버전 테이블에 설정이 존재하므로 유효함
+          });
           return;
         }
       }
     } catch (err) {
-      console.error("device_config 로드 실패:", err);
+      console.error("device_config / site_config_v2 로드 실패:", err);
     }
 
-    // 예외 발생 시 안전을 위해 접속 차단
+    // 두 테이블 모두에서 발견되지 않은 경우 최종 차단
     setSiteConfig(prev => ({
       ...prev,
       loading: false,
