@@ -963,6 +963,13 @@ class GUIUploaderApp:
             self.msg_queue.put(("log", "서버 최신 데이터 시각 조회 중..."))
             last_datetime = self.query_server_latest_datetime()
             if last_datetime:
+                # ISO 포맷(T 포함)인 경우 SQLite 포맷(공백)으로 정제
+                last_datetime = last_datetime.replace('T', ' ')
+                if '+' in last_datetime:
+                    last_datetime = last_datetime.split('+')[0]
+                if '.' in last_datetime:
+                    last_datetime = last_datetime.split('.')[0]
+                last_datetime = last_datetime.strip()
                 self.msg_queue.put(("log", f"서버 최신 데이터: {last_datetime}"))
             else:
                 self.msg_queue.put(("log", "서버에 기존 데이터가 없습니다. 전체 데이터를 전송합니다."))
