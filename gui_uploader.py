@@ -33,12 +33,12 @@ DEFAULT_DB_NAME = "toc_db.db"
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, DEFAULT_DB_NAME)
 DEFAULT_SHEET_NAME = "TOC_Measure_Dashboard"
 DEFAULT_DEVICE_ID = "DEVICE_01"
-DEFAULT_TABLE_NAME = "measure_logs"
+DEFAULT_TABLE_NAME = "measure_logs_v2"
 
 class GUIUploaderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("TOC B2B 다중 계측기 자동 업로더 v4.2 (Supabase)")
+        self.root.title("TOC B2B 다중 계측기 자동 업로더 v5.0 (Supabase V2)")
         self.root.geometry("660x700")
         self.root.resizable(False, False)
         
@@ -50,6 +50,7 @@ class GUIUploaderApp:
         self.sheet_name = DEFAULT_SHEET_NAME
         self.supabase_table = DEFAULT_TABLE_NAME
         self.device_id = DEFAULT_DEVICE_ID
+        self.site_id = "auto"
         self.interval_seconds = DEFAULT_INTERVAL_SECONDS
         self.last_upload_time = "None (First Run)"
         self.last_query = "N/A"
@@ -59,6 +60,7 @@ class GUIUploaderApp:
         self.is_mock = True  # 기본값 mock
         self.supabase_url = ""
         self.supabase_key = ""
+        self.telegram_bot_token = ""
         
         # 설정 파일에서 사용자 설정값 로드
         self.load_config()
@@ -105,6 +107,20 @@ class GUIUploaderApp:
         self.startup_sync_pending = True
         self.root.after(3000, self.trigger_sync_now)
 
+    def get_unique_device_id(self):
+        """PC의 Windows 컴퓨터 이름(Hostname)을 기반으로 기기 ID를 결정합니다."""
+        try:
+            import socket
+            hostname = socket.gethostname()
+            # 파일명이나 URL 파라미터로 안전하게 사용하기 위해 공백 제거 및 특수문자 정제
+            safe_hostname = "".join(c for c in hostname if c.isalnum() or c in "-_").strip()
+            if safe_hostname:
+                return safe_hostname
+            return "WIN_PC"
+        except Exception as e:
+            print(f"[컴퓨터 이름 조회 실패] {e}")
+            return "WIN_PC_UNKNOWN"
+
     def load_config(self):
         """uploader_config.json 파일로부터 설정을 읽어옴 (읽기 전용 - 파일에 쓰기 없음)"""
         if not os.path.exists(CONFIG_PATH):
@@ -116,7 +132,17 @@ class GUIUploaderApp:
                 self.db_path = config.get("db_path", DEFAULT_DB_PATH)
                 self.sheet_name = config.get("google_sheet_name", DEFAULT_SHEET_NAME)
                 self.supabase_table = config.get("supabase_table", DEFAULT_TABLE_NAME)
-                self.device_id = config.get("device_id", DEFAULT_DEVICE_ID)
+                
+                # site_id 와 device_id 분리 로드 (하위 호환성)
+                site_id_raw = config.get("site_id", config.get("device_id", ""))
+                if not site_id_raw or site_id_raw.strip() == "" or site_id_raw.lower() == "auto":
+                    self.site_id = self.get_unique_device_id()
+                else:
+                    self.site_id = site_id_raw.strip()
+                
+                # device_id는 항상 물리 PC 호스트네임 자동 획득
+                self.device_id = self.get_unique_device_id()
+                
                 self.interval_seconds = int(config.get("interval_seconds", DEFAULT_INTERVAL_SECONDS))
                 self.last_query = config.get("last_query", "N/A")
                 self.supabase_url = config.get("supabase_url", "")
@@ -129,6 +155,9 @@ class GUIUploaderApp:
                 self.smtp_password = config.get("smtp_password", "")
                 self.smtp_use_tls = config.get("smtp_use_tls", True)
                 
+                # Telegram bot configuration
+                self.telegram_bot_token = config.get("telegram_bot_token", "")
+                
                 # Alert Sender Initialization
                 self.alert_type = config.get("alert_type", "email")
                 self.alert_sender = get_alert_sender(
@@ -138,6 +167,7 @@ class GUIUploaderApp:
                     smtp_user=self.smtp_user,
                     smtp_password=self.smtp_password,
                     smtp_use_tls=self.smtp_use_tls,
+                    telegram_bot_token=self.telegram_bot_token,
                     log_queue=self.msg_queue
                 )
                 
@@ -498,7 +528,7 @@ class GUIUploaderApp:
             if self.check_config_timer >= 10:
                 self.check_config_timer = 0
                 if self.supabase_url and self.supabase_key and not self.is_mock:
-                    threading.Thread(target=self.bg_check_test_email_trigger, daemon=True).start()
+                    threading.Thread(target=self.bg_check_test_alert_trigger, daemon=True).start()
 
             self.root.after(1000, tick)
         
@@ -531,7 +561,7 @@ class GUIUploaderApp:
             else:
                 req_url = f"{base_url}/rest/v1/{self.supabase_table}"
             
-            req_url += "?select=Date_Time&order=Date_Time.desc&limit=1"
+            req_url += f"?select=Date_Time&Site_ID=eq.{urllib.parse.quote(self.site_id)}&order=Date_Time.desc&limit=1"
             
             req = urllib.request.Request(
                 req_url,
@@ -617,14 +647,16 @@ class GUIUploaderApp:
 
         self.msg_queue.put(("log", f"SQLite 뷰에서 신규 데이터 {len(rows)}건을 로드했습니다. B2B 패킹 가공을 시작합니다..."))
 
-        # B2B 다중 기기 식별을 위해 데이터에 Device_ID 컬럼 삽입 가공
+        # B2B 다중 기기 및 지점 식별을 위해 데이터에 Site_ID, Device_ID 컬럼 삽입 가공
         processed_columns = list(columns)
-        processed_columns.insert(1, 'Device_ID')
+        processed_columns.insert(1, 'Site_ID')
+        processed_columns.insert(2, 'Device_ID')
         
         processed_rows = []
         for row in rows:
             row_list = list(row)
-            row_list.insert(1, self.device_id)
+            row_list.insert(1, self.site_id)
+            row_list.insert(2, self.device_id)
             processed_rows.append(row_list)
 
         # 3. 전송 처리 (Mock CSV 시뮬레이션 또는 실제 Supabase API)
@@ -723,14 +755,63 @@ class GUIUploaderApp:
             self.msg_queue.put(("log", f"[Supabase API 연결 오류] 호스트 연결 실패: {e}"))
             return False
 
-    def fetch_site_config(self):
+    def auto_register_site_config(self):
+        """Supabase site_config_v2 테이블에 현재 site_id용 기본 설정을 자동 등록합니다."""
+        try:
+            base_url = self.supabase_url.rstrip('/')
+            if "/rest/v1" in base_url:
+                config_url = f"{base_url}/site_config_v2"
+            else:
+                config_url = f"{base_url}/rest/v1/site_config_v2"
+                
+            default_toc_alert = {
+                "use_single_table": True,
+                "alert_emails": "",
+                "telegram_chat_ids": "",
+                "1": { "warning": 2000 },
+                "2": { "warning": 1000 },
+                "3": { "warning": 50 }
+            }
+            
+            payload = {
+                "site_id": self.site_id,
+                "site_name": self.site_id,
+                "passcode": "850",
+                "toc_alert_high": default_toc_alert,
+                "use_single_table": True
+            }
+            
+            data_bytes = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(
+                config_url,
+                data=data_bytes,
+                headers={
+                    "apikey": self.supabase_key,
+                    "Authorization": f"Bearer {self.supabase_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal"
+                },
+                method="POST"
+            )
+            
+            with urllib.request.urlopen(req, timeout=5) as response:
+                if response.status in [200, 201, 204]:
+                    self.msg_queue.put(("log", f"[자동 등록 성공] Supabase에 '{self.site_id}' 사이트 설정이 성공적으로 자동 등록되었습니다!"))
+                    return True
+                else:
+                    self.msg_queue.put(("log", f"[자동 등록 실패] 서버 응답 상태: {response.status}"))
+        except Exception as e:
+            self.msg_queue.put(("log", f"[자동 등록 오류] {e}"))
+        return False
+
+    def fetch_site_config(self, allow_auto_reg=True):
         """Supabase에서 사이트 설정(임계값 및 이메일 수신 목록)을 실시간으로 가져옵니다."""
         try:
             base_url = self.supabase_url.rstrip('/')
             if "/rest/v1" in base_url:
-                config_url = f"{base_url}/850_dashboard_site_config?site_id=eq.{self.device_id}"
+                config_url = f"{base_url}/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
             else:
-                config_url = f"{base_url}/rest/v1/850_dashboard_site_config?site_id=eq.{self.device_id}"
+                config_url = f"{base_url}/rest/v1/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
                 
             req = urllib.request.Request(
                 config_url,
@@ -746,17 +827,22 @@ class GUIUploaderApp:
                     res_data = json.loads(response.read().decode('utf-8'))
                     if isinstance(res_data, list) and len(res_data) > 0:
                         return res_data[0]
+                    elif isinstance(res_data, list) and len(res_data) == 0 and allow_auto_reg:
+                        self.msg_queue.put(("log", f"[자동 등록] Supabase에 '{self.site_id}' 설정이 없어 새 등록을 시도합니다..."))
+                        if self.auto_register_site_config():
+                            return self.fetch_site_config(allow_auto_reg=False)
         except Exception as e:
             self.msg_queue.put(("log", f"[설정 정보 로드 실패] 오류: {e}"))
         return None
 
     def check_and_send_alerts(self, records):
-        """새로 수집된 레코드들의 TOC 수치가 경고 임계값을 초과하는지 검사하고 이메일을 발송합니다."""
-        # 1. 사이트 설정 로드 (임계값 및 이메일 수신 목록)
+        """새로 수집된 레코드들의 TOC 수치가 경고 임계값을 초과하는지 검사하고 알림을 발송합니다."""
+        # 1. 사이트 설정 로드 (임계값 및 수신 목록)
         config_data = self.fetch_site_config()
         
         toc_alert_high = {}
         alert_emails = ""
+        telegram_chat_ids = ""
         site_name = self.device_id
         
         if config_data:
@@ -770,10 +856,16 @@ class GUIUploaderApp:
             if isinstance(alert_json, dict):
                 toc_alert_high = alert_json
                 alert_emails = alert_json.get("alert_emails", "")
+                telegram_chat_ids = alert_json.get("telegram_chat_ids", "")
 
-        # 수신 이메일이 설정되어 있지 않으면 알림 검사 생략
-        if not alert_emails:
-            # self.msg_queue.put(("log", "[경고 알림] 웹 설정에 수신인 메일 주소가 등록되어 있지 않아 검사를 생략합니다."))
+        # 알림 타입에 따라 수신인 선택
+        recipients = ""
+        if self.alert_type == "telegram":
+            recipients = telegram_chat_ids
+        else:
+            recipients = alert_emails
+
+        if not recipients:
             return
 
         now_time = datetime.now()
@@ -863,13 +955,13 @@ class GUIUploaderApp:
                 """
                 
                 # 알림 전송 실행 (추상화된 알람 발송기 사용)
-                success = self.alert_sender.send_alert(alert_emails, subject, body)
+                success = self.alert_sender.send_alert(recipients, subject, body)
                 if success:
                     # 전송 성공 시 쿨다운 타임 업데이트
                     self.last_alert_time[channel_id] = now_time
 
-    def bg_check_test_email_trigger(self):
-        """Supabase 설정을 GET 하여 trigger_test_email 플래그가 참인지 확인하고, 참이면 메일을 발송한 뒤 플래그를 내립니다."""
+    def bg_check_test_alert_trigger(self):
+        """Supabase 설정을 GET 하여 trigger_test_email 또는 trigger_test_telegram 플래그가 참인지 확인하고, 참이면 메일을 발송한 뒤 플래그를 내립니다."""
         config_data = self.fetch_site_config()
         if not config_data:
             return
@@ -884,15 +976,19 @@ class GUIUploaderApp:
         if not isinstance(toc_alert_high, dict):
             return
             
-        trigger = toc_alert_high.get("trigger_test_email", False)
-        if trigger:
+        trigger_email = toc_alert_high.get("trigger_test_email", False)
+        trigger_telegram = toc_alert_high.get("trigger_test_telegram", False)
+        
+        updated = False
+        site_name = config_data.get("site_name", self.device_id)
+        
+        if trigger_email:
             self.msg_queue.put(("log", "[알림 메일 테스트] 웹으로부터 테스트 메일 발송 신호를 감지했습니다!"))
             alert_emails = toc_alert_high.get("alert_emails", "")
             
             if not alert_emails:
                 self.msg_queue.put(("log", "[알림 메일 테스트 실패] 수신인 이메일 주소가 비어있습니다."))
             else:
-                site_name = config_data.get("site_name", self.device_id)
                 subject = f"[TOC 모의 테스트 메일] {site_name} 알림 발송 검증"
                 body = f"""
                 <html>
@@ -924,28 +1020,57 @@ class GUIUploaderApp:
                                     <td style="padding: 8px; border-bottom: 1px solid #f1f5f9;">{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</td>
                                 </tr>
                             </table>
-                            <p style="margin-top: 24px; font-size: 0.82rem; color: #64748b;">
-                                * 향후 계측 데이터의 TOC 농도가 경고 설정값을 초과하는 위급 상황이 발생하면 본 수신처 목록으로 긴급 알림 메일이 즉시 자동 전송됩니다.
-                            </p>
-                        </div>
-                        <div style="background-color: #f8fafc; padding: 16px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 0.8rem; color: #94a3b8;">
-                            LAS KOREA 온라인 계측 모니터링 시스템
                         </div>
                     </div>
                 </body>
                 </html>
                 """
-                # 알림 쏘기 (추상화된 알람 발송기 사용)
-                self.alert_sender.send_alert(alert_emails, subject, body)
+                from alerts.email_sender import EmailAlertSender
+                email_sender = EmailAlertSender(
+                    smtp_server=self.smtp_server,
+                    smtp_port=self.smtp_port,
+                    smtp_user=self.smtp_user,
+                    smtp_password=self.smtp_password,
+                    smtp_use_tls=self.smtp_use_tls,
+                    log_queue=self.msg_queue
+                )
+                email_sender.send_alert(alert_emails, subject, body)
                 
-            # 메일 발송 후 DB 플래그 원상 복구 (trigger_test_email: False)
+            toc_alert_high["trigger_test_email"] = False
+            updated = True
+
+        if trigger_telegram:
+            self.msg_queue.put(("log", "[텔레그램 알림 테스트] 웹으로부터 테스트 텔레그램 발송 신호를 감지했습니다!"))
+            telegram_chat_ids = toc_alert_high.get("telegram_chat_ids", "")
+            
+            if not telegram_chat_ids:
+                self.msg_queue.put(("log", "[텔레그램 알림 테스트 실패] 수신 대상 Chat ID가 비어있습니다."))
+            else:
+                subject = f"[TOC 모의 텔레그램 알람] {site_name} 발송 검증"
+                body = f"""
+                웹 설정 화면에서 요청하신 텔레그램 즉시 발송 검증이 완료되었습니다!
+                
+                이 메시지가 수신되었다면, <b>계측기 로컬 텔레그램 봇과 Supabase 클라우드 간의 연동이 완벽하게 완료</b>된 것입니다.
+                
+                테스트 시간: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+                """
+                from alerts.telegram_sender import TelegramAlertSender
+                tg_sender = TelegramAlertSender(
+                    bot_token=self.telegram_bot_token,
+                    log_queue=self.msg_queue
+                )
+                tg_sender.send_alert(telegram_chat_ids, subject, body)
+                
+            toc_alert_high["trigger_test_telegram"] = False
+            updated = True
+
+        if updated:
             try:
-                toc_alert_high["trigger_test_email"] = False
                 base_url = self.supabase_url.rstrip('/')
                 if "/rest/v1" in base_url:
-                    config_url = f"{base_url}/850_dashboard_site_config?site_id=eq.{self.device_id}"
+                    config_url = f"{base_url}/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
                 else:
-                    config_url = f"{base_url}/rest/v1/850_dashboard_site_config?site_id=eq.{self.device_id}"
+                    config_url = f"{base_url}/rest/v1/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
                     
                 req = urllib.request.Request(
                     config_url,
@@ -960,7 +1085,7 @@ class GUIUploaderApp:
                 )
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     if resp.status in [200, 201, 204]:
-                        self.msg_queue.put(("log", "[알림 메일 테스트 완료] 웹의 테스트 발송 신호 플래그가 비활성화되었습니다."))
+                        self.msg_queue.put(("log", "[원격 테스트] 웹 모의 테스트 요청 플래그를 리셋 완료했습니다."))
             except Exception as patch_ex:
                 self.msg_queue.put(("log", f"[테스트 플래그 초기화 실패] 오류: {patch_ex}"))
 

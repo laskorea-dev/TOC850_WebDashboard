@@ -21,7 +21,7 @@
 * [x] **Supabase DB 연결 자격 증명 연동 및 데이터 테이블 적재 마이그레이션**
 * [x] **대시보드 트렌드 차트 표시범위 기본값을 기존 7일에서 24시간(24h)으로 최적화**
 
-### Phase 7: 3단계 알림 고도화 및 SMTP 이메일 발송 연동 (진행 중)
+### Phase 7: 3단계 알림 고도화 및 SMTP 이메일 발송 연동 (완료 100%)
 * [x] **주의(노랑) / 경고(빨강) 3단계 등급 테이블 시각화 구현**
 * [x] **별도 스키마 변경 없이 `toc_alert_high` JSON 필드 내 설정값 일괄 패키징 및 웹 저장 연동**
 * [x] **`wsmtp.ecounterp.com` SMTP 서버 연동 및 채널별 1시간 쿨다운 경고 메일 발송 로직 구현**
@@ -32,9 +32,28 @@
 * [x] **웹 UI 테스트 메일 발송 비동기 플래그(`trigger_test_email`) 핸들러 및 파이썬 폴링 리셋 로직 연동**
 * [x] **설정 저장 시 5000 미만 임계치 설정에 대한 경고 확인창(confirm)을 완전히 제거하여, 모든 범위(0 이상)의 커스텀 경고 기준값을 알림 없이 즉시 저장할 수 있도록 개선**
 
+### Phase 8: 단일 테이블 통합 및 텔레그램 무료 알림 연동 (완료 100%)
+* [x] **모든 장비가 단일 테이블(measure_logs)을 공유하여 데이터베이스 자원을 효율화하는 싱글 테이블 아키텍처 구현**
+* [x] **API 쿼리 및 증분점 탐색 시 `Device_ID` 필터링 주입 적용 완료**
+* [x] **텔레그램 API 연동 발송 모듈(`TelegramAlertSender`) 신규 구축 완료**
+* [x] **기존 스키마 DDL 수정 없이 `toc_alert_high` JSON 필드 내에 Telegram Chat ID 및 테스트 트리거(`trigger_test_telegram`) 패키징 저장**
+* [x] **웹 대시보드(App.jsx / LegacyApp.jsx)에 Chat ID 입력창 및 즉시 테스트 메시지 발송 신호 연동 완료**
+
+### Phase 9: V2 스키마 설계 및 지점 식별자 직접 매립 아키텍처 (완료 100%)
+* [x] **Supabase 신규 테이블 `site_config_v2` 및 `measure_logs_v2` 구조 정의 및 SQL DDL 배포 가이드라인 수록**
+* [x] **업로더 프로그램(gui_uploader.py) 내 `Site_ID` (지점 코드) 및 `Device_ID` (장치명) 개별 로드 및 API 연동**
+* [x] **서버 증분 탐색(`query_server_latest_datetime`) 시 `Site_ID` 필터 기준으로 조회하여 데이터 정합성 보장**
+* [x] **웹 대시보드(App.jsx / LegacyApp.jsx)의 데이터 조회(`loadData`), CSV 다운로드, 모의 데이터 쿼리 전체를 `Site_ID` 기준으로 필터 조회하도록 V2 마이그레이션**
+* [x] **V5.0 GUI 업로더 컴파일 (`gui_uploader_v5.0.exe`) 및 배치파일 연동 완료**
 
 ---
 
 ## 3. 최종 품질 및 동작 검증 결과
 1. **차트 기본 범위 검증**: React 앱 로드 시 `App.jsx`에서 `24h`가 기본 활성화 상태로 로드되어, 대량 데이터 조회 시의 초기 로딩 부하를 크게 감소시켰습니다.
-2. **이메일 발송 상태**: python uploader에서 설정된 임계치(Ch3: 40/50, Ch2: 900/1000, Ch1: 1600/2000) 초과 시 ecounterp SMTP를 통해 경고 메일이 발송되는 코어 모듈 동작을 확인했습니다.
+2. **이메일 발송 상태**: python uploader에서 설정된 임계치 초과 시 ecounterp SMTP를 통해 경고 메일이 발송되는 코어 모듈 동작을 확인했습니다.
+3. **단일 테이블 및 텔레그램 푸시 알림 검증**:
+   * `VITE_USE_SINGLE_TABLE` 환경변수가 활성화되면 대시보드에서 단일 테이블(`measure_logs` 등)에 `Device_ID` 필터를 적용하여 데이터를 로드합니다.
+   * `TelegramAlertSender` 모듈이 오류 없이 컴파일되었으며, 10초 주기의 백그라운드 스레드 폴링을 통해 웹에서 요청한 `trigger_test_telegram` 신호를 성공적으로 캐치하여 초기화합니다.
+4. **V2 스키마 및 Site_ID 연속성 연동 검증**:
+   * `site_config_v2` 및 `measure_logs_v2` 통합 데이터 테이블 조회를 구현하여, PC 교체 시에도 과거 데이터가 한 화면에 매끄럽게 연결되는 아키텍처 구축을 검증 완료했습니다.
+

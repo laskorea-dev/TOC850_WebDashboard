@@ -20,6 +20,7 @@ import {
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
+const SUPABASE_MEASUREMENT_TABLE = import.meta.env.VITE_SUPABASE_MEASUREMENT_TABLE || "measure_logs_v2";
 const PAGE_SIZE = 1000; // Supabase 기본 limit
 
 // 차트 선 색상 매핑
@@ -121,23 +122,39 @@ const getDateFilterParams = (range, start, end) => {
 
 function App() {
   // URL 파라미터 ?site= 존재 여부 분석 (비표준 ?admin?site=... 및 표준 ?admin&site=... 형식 대응)
+  // URL 파라미터 ?site= 또는 ?device= 존재 여부 분석
   const hasSiteParam = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const search = window.location.search;
-    return search.toLowerCase().includes('site=');
+    return search.toLowerCase().includes('site=') || search.toLowerCase().includes('device=');
   }, []);
 
-  // URL 파라미터 ?site= 에서 사이트 아이디(테이블명) 파싱, 없을 경우 폴백
+  // URL 파라미터 ?site= 에서 사이트 아이디(지점명) 파싱
   const siteId = useMemo(() => {
-    if (typeof window === 'undefined') return SUPABASE_TABLE;
+    if (typeof window === 'undefined') return '';
     const search = window.location.search;
-    // site=지점명 패턴 검색
     const match = search.match(/[?&]site=([^&?]+)/i);
-    if (match) return match[1];
+    if (match) return decodeURIComponent(match[1]);
     const fallbackMatch = search.match(/site=([^&?]+)/i);
-    if (fallbackMatch) return fallbackMatch[1];
-    return SUPABASE_TABLE;
+    if (fallbackMatch) return decodeURIComponent(fallbackMatch[1]);
+    return '';
   }, []);
+
+  // URL 파라미터 ?device= 에서 디바이스 아이디(장치명) 파싱
+  const deviceIdParam = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const search = window.location.search;
+    const match = search.match(/[?&]device=([^&?]+)/i);
+    if (match) return decodeURIComponent(match[1]);
+    const fallbackMatch = search.match(/device=([^&?]+)/i);
+    if (fallbackMatch) return decodeURIComponent(fallbackMatch[1]);
+    return '';
+  }, []);
+
+  // 설정 검색용 키워드
+  const siteSearchTerm = useMemo(() => {
+    return siteId || deviceIdParam || SUPABASE_TABLE;
+  }, [siteId, deviceIdParam]);
 
   // 관리자 모드 여부 분석 (?admin 파라미터 존재 여부)
   const isAdminParam = useMemo(() => {
@@ -155,7 +172,7 @@ function App() {
 
   // site_config 설정 데이터 상태
   const [siteConfig, setSiteConfig] = useState({
-    site_id: siteId,
+    site_id: siteSearchTerm,
     passcode: '850', // 폴백용 기본 비밀번호
     site_name: 'LAS TOC-850 온라인 계측 모니터링 대시보드', // 폴백용 기본 사이트명
     is_active: true,
@@ -214,6 +231,7 @@ function App() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [localAlerts, setLocalAlerts] = useState({});
   const [alertEmails, setAlertEmails] = useState('');
+  const [telegramChatIds, setTelegramChatIds] = useState('');
   const [isPreviewMode, setIsPreviewMode] = useState(false); // 새 대시보드 미리보기 모드 상태
 
   // 시뮬레이션 데이터 및 제어 상태
@@ -232,10 +250,10 @@ function App() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/850_dashboard_site_config`
-        : `${baseUrl}/rest/v1/850_dashboard_site_config`;
+        ? `${baseUrl}/site_config_v2`
+        : `${baseUrl}/rest/v1/site_config_v2`;
 
-      const response = await fetch(`${configEndpoint}?site_id=eq.${siteId}`, {
+      const response = await fetch(`${configEndpoint}?or=(site_id.eq.${encodeURIComponent(siteSearchTerm)},site_name.eq.${encodeURIComponent(siteSearchTerm)})`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
@@ -276,7 +294,7 @@ function App() {
       ...prev,
       loading: false
     }));
-  }, [siteId]);
+  }, [siteSearchTerm]);
 
   // 대시보드 내의 고유 채널(번호와 이름의 쌍) 목록 추출
   const uniqueChannels = useMemo(() => {
@@ -305,6 +323,8 @@ function App() {
   // =========================================================================
   const loadData = useCallback(async () => {
     if (!hasSiteParam) return;
+    if (siteConfig.loading) return; // 설정 정보 로드 완료 시까지 대기
+
     setLoading(true);
     setError(null);
     setLoadProgress('연결 중...');
@@ -314,12 +334,21 @@ function App() {
       }
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
       const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${siteId}`
-        : `${baseUrl}/rest/v1/${siteId}`;
+        ? `${baseUrl}/${targetTable}`
+        : `${baseUrl}/rest/v1/${targetTable}`;
 
       // 서버 사이드 날짜 쿼리 파라미터 빌드
       const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
+      
+      // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
+      const singleTableFilter = useSingleTable
+        ? (deviceIdParam 
+            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
+            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
+        : '';
 
       let allData = [];
       let from = 0;
@@ -331,7 +360,7 @@ function App() {
 
         // PostgREST 날짜 필터(filterParams) 주입
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.asc${filterParams}`,
+          `${endpoint}?select=*&order=Date_Time.asc${filterParams}${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
@@ -375,7 +404,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [siteId, timeRange, customStart, customEnd, isAdminParam]);
+  }, [siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, isAdminParam, siteConfig]);
 
   // 임계값 저장 API 호출 (Supabase PATCH)
   const saveSiteConfig = useCallback(async (updatedAlerts) => {
@@ -385,10 +414,10 @@ function App() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/850_dashboard_site_config`
-        : `${baseUrl}/rest/v1/850_dashboard_site_config`;
+        ? `${baseUrl}/site_config_v2`
+        : `${baseUrl}/rest/v1/site_config_v2`;
 
-      const response = await fetch(`${configEndpoint}?site_id=eq.${siteId}`, {
+      const response = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
         method: 'PATCH',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -414,7 +443,7 @@ function App() {
       alert(`설정 저장 실패: ${err.message}`);
       return false;
     }
-  }, [siteId, loadSiteConfig]);
+  }, [siteConfig, loadSiteConfig]);
 
   // 모의 데이터 생성 API (POST)
   const insertMockData = useCallback(async () => {
@@ -434,9 +463,12 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const queryDeviceId = deviceIdParam || siteConfig.site_id || siteSearchTerm;
+      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : queryDeviceId;
       const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${siteId}`
-        : `${baseUrl}/rest/v1/${siteId}`;
+        ? `${baseUrl}/${targetTable}`
+        : `${baseUrl}/rest/v1/${targetTable}`;
 
       // 채널명 매핑
       let channelName = `채널 ${simChannel}`;
@@ -450,6 +482,9 @@ function App() {
       const pad = (n) => String(n).padStart(2, '0');
       const formattedDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 
+      const resolvedSiteId = siteConfig.site_id || siteSearchTerm;
+      const resolvedDeviceId = deviceIdParam || "MOCK-DEVICE";
+
       const payload = {
         Date_Time: formattedDate,
         Channel: parseInt(simChannel),
@@ -459,6 +494,13 @@ function App() {
         MSIG: 0.0,
         Add_note: "[MOCK TEST DATA]"
       };
+
+      if (useSingleTable) {
+        payload.Site_ID = resolvedSiteId;
+        payload.Device_ID = resolvedDeviceId;
+      } else {
+        payload.Device_ID = queryDeviceId;
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -485,7 +527,7 @@ function App() {
     } finally {
       setSimIsSending(false);
     }
-  }, [simChannel, simToc, siteId, loadData]);
+  }, [simChannel, simToc, siteSearchTerm, deviceIdParam, loadData, siteConfig]);
 
   // 모의 데이터 일괄 삭제 API (DELETE)
   const deleteMockData = useCallback(async () => {
@@ -498,9 +540,18 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const queryDeviceId = deviceIdParam || siteConfig.site_id || siteSearchTerm;
+      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : queryDeviceId;
+      const deleteFilter = useSingleTable
+        ? (deviceIdParam 
+            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
+            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
+        : "";
+      
       const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${siteId}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D`
-        : `${baseUrl}/rest/v1/${siteId}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D`;
+        ? `${baseUrl}/${targetTable}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D${deleteFilter}`
+        : `${baseUrl}/rest/v1/${targetTable}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D${deleteFilter}`;
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
@@ -523,7 +574,7 @@ function App() {
     } finally {
       setSimIsSending(false);
     }
-  }, [siteId, loadData]);
+  }, [siteSearchTerm, deviceIdParam, loadData, siteConfig]);
 
   // 모달이 열리거나 관리자 설정 페이지에 진입할 때 localAlerts 및 alertEmails 상태 동기화
   useEffect(() => {
@@ -555,7 +606,9 @@ function App() {
       setLocalAlerts(initial);
       
       const emails = siteConfig.toc_alert_high?.alert_emails || '';
+      const telegrams = siteConfig.toc_alert_high?.telegram_chat_ids || '';
       setAlertEmails(emails);
+      setTelegramChatIds(telegrams);
     }
   }, [isConfigModalOpen, isAdminParam, uniqueChannels, siteConfig]);
 
@@ -856,12 +909,21 @@ function App() {
       }
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
       const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${siteId}`
-        : `${baseUrl}/rest/v1/${siteId}`;
+        ? `${baseUrl}/${targetTable}`
+        : `${baseUrl}/rest/v1/${targetTable}`;
 
       // CSV 다운로드용 날짜 필터 파라미터 빌드
       const filterParams = getDateFilterParams(csvRangeType, csvCustomStart, csvCustomEnd);
+      
+      // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
+      const singleTableFilter = useSingleTable
+        ? (deviceIdParam 
+            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
+            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
+        : '';
 
       let allData = [];
       let from = 0;
@@ -872,7 +934,7 @@ function App() {
         setLoadProgress(`다운로드 데이터 ${allData.length.toLocaleString()}건 로딩 중...`);
 
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.asc${filterParams}`,
+          `${endpoint}?select=*&order=Date_Time.asc${filterParams}${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
@@ -942,7 +1004,7 @@ function App() {
       setLoading(false);
       setLoadProgress('');
     }
-  }, [siteId, csvRangeType, csvCustomStart, csvCustomEnd, isAdminParam]);
+  }, [siteSearchTerm, deviceIdParam, csvRangeType, csvCustomStart, csvCustomEnd, isAdminParam, siteConfig]);
 
   // 테이블 페이징
   const totalPages = Math.ceil(tableFilteredData.length / itemsPerPage);
@@ -1092,7 +1154,10 @@ function App() {
   // =========================================================================
   if (isAdminParam && !isPreviewMode) {
     const handleReturnToDashboard = () => {
-      const cleanSearch = siteId ? `?site=${siteId}` : '';
+      const params = [];
+      if (siteId) params.push(`site=${encodeURIComponent(siteId)}`);
+      if (deviceIdParam) params.push(`device=${encodeURIComponent(deviceIdParam)}`);
+      const cleanSearch = params.length > 0 ? `?${params.join('&')}` : '';
       window.location.href = window.location.pathname + cleanSearch;
     };
 
@@ -1186,6 +1251,23 @@ function App() {
               </span>
             </div>
 
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                ✈️ 알림 수신 텔레그램 Chat ID
+              </label>
+              <input
+                type="text"
+                className="custom-select"
+                style={{ width: '100%', padding: '10px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                placeholder="알림을 받을 텔레그램 Chat ID 입력 (쉼표 구분)"
+                value={telegramChatIds}
+                onChange={(e) => setTelegramChatIds(e.target.value)}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
+                경고 기준치 초과 시 입력한 Chat ID(또는 단톡방 ID)로 텔레그램 푸시 알림이 자동 전송됩니다.
+              </span>
+            </div>
+
             <button
               className="sim-btn"
               style={{ width: '100%', padding: '12px', fontSize: '0.9rem' }}
@@ -1204,7 +1286,8 @@ function App() {
 
                 const updatedConfig = {
                   ...localAlerts,
-                  alert_emails: alertEmails
+                  alert_emails: alertEmails,
+                  telegram_chat_ids: telegramChatIds
                 };
 
                 await saveSiteConfig(updatedConfig);
@@ -1268,38 +1351,68 @@ function App() {
               </div>
             </div>
 
-            {/* 2. 이메일 수신 즉시 테스트 */}
-            <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyBetween: 'space-between', gap: '12px' }}>
+            {/* 2. 알람 즉시 테스트 */}
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <span style={{ fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>✉️ 알림 메일 즉시 발송 테스트</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600, display: 'block', marginBottom: '6px' }}>✉️ 알림 즉시 발송 테스트</span>
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', lineHeight: '1.4' }}>
-                  현재 입력된 알림 수신 이메일 주소 목록으로 로컬 파이썬 업로더를 경유하여 테스트 메일을 전송합니다. (업로더 프로그램이 기동 중이어야 발송을 수신합니다.)
+                  현재 입력된 설정 목록으로 로컬 파이썬 업로더를 경유하여 테스트 알림을 전송합니다. (업로더 프로그램이 기동 중이어야 발송을 수신합니다.)
                 </span>
               </div>
-              <button
-                className="sim-btn"
-                style={{ width: '100%', padding: '10px', fontSize: '0.85rem' }}
-                onClick={async () => {
-                  if (!alertEmails) {
-                    alert("알림을 수신할 이메일 주소를 먼저 설정하고 저장해 주세요.");
-                    return;
-                  }
-                  if (!window.confirm("현재 수신처로 테스트 메일 전송 요청을 전달하시겠습니까?\n(로컬의 파이썬 업로더가 켜져 있어야 메일이 발송됩니다.)")) {
-                    return;
-                  }
-                  const updatedConfig = {
-                    ...localAlerts,
-                    alert_emails: alertEmails,
-                    trigger_test_email: true
-                  };
-                  const success = await saveSiteConfig(updatedConfig);
-                  if (success) {
-                    alert("이메일 발송 신호가 Supabase에 정상 등록되었습니다.\n로컬 업로더가 실시간 감지하여 테스트 이메일을 발송합니다.");
-                  }
-                }}
-              >
-                테스트 메일 발송 신호 전송 ✉️
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  className="sim-btn"
+                  style={{ width: '100%', padding: '10px', fontSize: '0.85rem' }}
+                  onClick={async () => {
+                    if (!alertEmails) {
+                      alert("알림을 수신할 이메일 주소를 먼저 설정하고 저장해 주세요.");
+                      return;
+                    }
+                    if (!window.confirm("현재 수신처로 테스트 메일 전송 요청을 전달하시겠습니까?\n(로컬의 파이썬 업로더가 켜져 있어야 메일이 발송됩니다.)")) {
+                      return;
+                    }
+                    const updatedConfig = {
+                      ...localAlerts,
+                      alert_emails: alertEmails,
+                      telegram_chat_ids: telegramChatIds,
+                      device_ids: deviceIds,
+                      trigger_test_email: true
+                    };
+                    const success = await saveSiteConfig(updatedConfig);
+                    if (success) {
+                      alert("이메일 발송 신호가 Supabase에 정상 등록되었습니다.\n로컬 업로더가 실시간 감지하여 테스트 이메일을 발송합니다.");
+                    }
+                  }}
+                >
+                  테스트 메일 발송 신호 전송 ✉️
+                </button>
+                <button
+                  className="sim-btn"
+                  style={{ width: '100%', padding: '10px', fontSize: '0.85rem', background: 'linear-gradient(135deg, #0088cc 0%, #00a2ed 100%)', borderColor: '#00a2ed' }}
+                  onClick={async () => {
+                    if (!telegramChatIds) {
+                      alert("알림을 수신할 텔레그램 Chat ID를 먼저 설정하고 저장해 주세요.");
+                      return;
+                    }
+                    if (!window.confirm("현재 수신처로 테스트 텔레그램 메시지 전송 요청을 전달하시겠습니까?\n(로컬의 파이썬 업로더가 켜져 있어야 메시지가 발송됩니다.)")) {
+                      return;
+                    }
+                    const updatedConfig = {
+                      ...localAlerts,
+                      alert_emails: alertEmails,
+                      telegram_chat_ids: telegramChatIds,
+                      device_ids: deviceIds,
+                      trigger_test_telegram: true
+                    };
+                    const success = await saveSiteConfig(updatedConfig);
+                    if (success) {
+                      alert("텔레그램 발송 신호가 Supabase에 정상 등록되었습니다.\n로컬 업로더가 실시간 감지하여 테스트 메시지를 발송합니다.");
+                    }
+                  }}
+                >
+                  테스트 텔레그램 발송 신호 전송 ✈️
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2023,6 +2136,24 @@ function App() {
                     </span>
                   </div>
 
+                  {/* 텔레그램 알림 수신 설정 */}
+                  <div style={{ marginTop: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                      ✈️ 알림 수신 텔레그램 Chat ID
+                    </label>
+                    <input
+                      type="text"
+                      className="custom-select"
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      placeholder="알림을 받을 텔레그램 Chat ID를 입력하세요 (여러 개일 경우 쉼표로 구분. 예: 12345678, -100987654)"
+                      value={telegramChatIds}
+                      onChange={(e) => setTelegramChatIds(e.target.value)}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
+                      계측기 데이터가 설정된 경고 임계값을 초과하면, 입력한 Chat ID(또는 단톡방 ID)로 텔레그램 알림이 즉시 발송됩니다.
+                    </span>
+                  </div>
+
                 </div>
 
                 <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
@@ -2042,7 +2173,8 @@ function App() {
 
                     const updatedConfig = {
                       ...localAlerts,
-                      alert_emails: alertEmails
+                      alert_emails: alertEmails,
+                      telegram_chat_ids: telegramChatIds
                     };
 
                     const success = await saveSiteConfig(updatedConfig);

@@ -8,11 +8,13 @@ echo ========================================================
 echo [Uploader] TOC B2B GUI Uploader EXE is launching...
 echo ========================================================
 
-if exist gui_uploader.exe (
+if exist gui_uploader_v5.0.exe (
+    start "" gui_uploader_v5.0.exe
+    echo [OK] Uploader v5.0 launched successfully in background.
+) else if exist gui_uploader.exe (
     start "" gui_uploader.exe
     echo [OK] Uploader launched successfully in background.
 ) else (
-    echo [ERROR] gui_uploader.exe not found! Please check the folder.
+    echo [ERROR] gui_uploader_v5.0.exe or gui_uploader.exe not found! Please check the folder.
     pause
 )
-

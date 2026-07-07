@@ -1,5 +1,6 @@
 from alerts.base import BaseAlertSender
 from alerts.email_sender import EmailAlertSender
+from alerts.telegram_sender import TelegramAlertSender
 
 def get_alert_sender(alert_type: str, **kwargs) -> BaseAlertSender:
     """설정된 alert_type에 부합하는 알림 발송 객체를 생성하여 반환합니다.
@@ -7,7 +8,12 @@ def get_alert_sender(alert_type: str, **kwargs) -> BaseAlertSender:
     """
     normalized_type = str(alert_type).strip().lower()
     
-    if normalized_type == "email" or not normalized_type:
+    if normalized_type == "telegram":
+        return TelegramAlertSender(
+            bot_token=kwargs.get("telegram_bot_token", ""),
+            log_queue=kwargs.get("log_queue")
+        )
+    elif normalized_type == "email" or not normalized_type:
         return EmailAlertSender(
             smtp_server=kwargs.get("smtp_server", ""),
             smtp_port=kwargs.get("smtp_port", 587),
@@ -16,8 +22,6 @@ def get_alert_sender(alert_type: str, **kwargs) -> BaseAlertSender:
             smtp_use_tls=kwargs.get("smtp_use_tls", True),
             log_queue=kwargs.get("log_queue")
         )
-    # elif normalized_type == "kakao":
-    #     return KakaoAlertSender(...)
     else:
         # 미지원 타입에 대해 일단 EmailAlertSender로 안전하게 폴백 처리합니다.
         # 향후 다른 모듈 연동 전까지 유연성 확보

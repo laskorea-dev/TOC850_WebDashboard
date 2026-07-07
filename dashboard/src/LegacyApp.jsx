@@ -19,6 +19,7 @@ import {
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
+const SUPABASE_MEASUREMENT_TABLE = import.meta.env.VITE_SUPABASE_MEASUREMENT_TABLE || "measure_logs_v2";
 const PAGE_SIZE = 1000; // Supabase 기본 limit
 
 // 차트 선 색상 매핑
@@ -119,20 +120,33 @@ const getDateFilterParams = (range, start, end) => {
 };
 
 function LegacyApp() {
-  // URL 파라미터 ?site= 존재 여부 분석
+  // URL 파라미터 ?site= 또는 ?device= 존재 여부 분석
   const hasSiteParam = useMemo(() => {
     if (typeof window === 'undefined') return false;
     const searchParams = new URLSearchParams(window.location.search);
     const siteVal = searchParams.get('site');
-    return siteVal !== null && siteVal.trim() !== '';
+    const deviceVal = searchParams.get('device');
+    return (siteVal !== null && siteVal.trim() !== '') || (deviceVal !== null && deviceVal.trim() !== '');
   }, []);
 
-  // URL 파라미터 ?site= 에서 사이트 아이디(테이블명) 파싱, 없을 경우 폴백
+  // URL 파라미터 ?site= 에서 사이트 아이디(지점명) 파싱
   const siteId = useMemo(() => {
-    if (typeof window === 'undefined') return SUPABASE_TABLE;
+    if (typeof window === 'undefined') return '';
     const searchParams = new URLSearchParams(window.location.search);
-    return searchParams.get('site') || SUPABASE_TABLE;
+    return searchParams.get('site') || '';
   }, []);
+
+  // URL 파라미터 ?device= 에서 디바이스 아이디(장치명) 파싱
+  const deviceIdParam = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const searchParams = new URLSearchParams(window.location.search);
+    return searchParams.get('device') || '';
+  }, []);
+
+  // 설정 검색용 키워드
+  const siteSearchTerm = useMemo(() => {
+    return siteId || deviceIdParam || SUPABASE_TABLE;
+  }, [siteId, deviceIdParam]);
 
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -141,7 +155,7 @@ function LegacyApp() {
 
   // site_config 설정 데이터 상태
   const [siteConfig, setSiteConfig] = useState({
-    site_id: siteId,
+    site_id: siteSearchTerm,
     passcode: '850', // 폴백용 기본 비밀번호
     site_name: 'LAS TOC-850 온라인 계측 모니터링 대시보드', // 폴백용 기본 사이트명
     is_active: true,
@@ -207,10 +221,10 @@ function LegacyApp() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/850_dashboard_site_config`
-        : `${baseUrl}/rest/v1/850_dashboard_site_config`;
+        ? `${baseUrl}/site_config_v2`
+        : `${baseUrl}/rest/v1/site_config_v2`;
 
-      const response = await fetch(`${configEndpoint}?site_id=eq.${siteId}`, {
+      const response = await fetch(`${configEndpoint}?or=(site_id.eq.${encodeURIComponent(siteSearchTerm)},site_name.eq.${encodeURIComponent(siteSearchTerm)})`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
@@ -251,13 +265,15 @@ function LegacyApp() {
       ...prev,
       loading: false
     }));
-  }, [siteId]);
+  }, [siteSearchTerm]);
 
   // =========================================================================
   // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
   // =========================================================================
   const loadData = useCallback(async () => {
     if (!hasSiteParam) return;
+    if (siteConfig.loading) return; // 설정 정보 로드 완료 시까지 대기
+
     setLoading(true);
     setError(null);
     setLoadProgress('연결 중...');
@@ -267,12 +283,21 @@ function LegacyApp() {
       }
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
       const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${siteId}`
-        : `${baseUrl}/rest/v1/${siteId}`;
+        ? `${baseUrl}/${targetTable}`
+        : `${baseUrl}/rest/v1/${targetTable}`;
 
       // 서버 사이드 날짜 쿼리 파라미터 빌드
       const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
+      
+      // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
+      const singleTableFilter = useSingleTable
+        ? (deviceIdParam 
+            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
+            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
+        : '';
 
       let allData = [];
       let from = 0;
@@ -284,20 +309,19 @@ function LegacyApp() {
 
         // PostgREST 날짜 필터(filterParams) 주입
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.asc${filterParams}`,
+          `${endpoint}?select=*&order=Date_Time.desc${filterParams}${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
               'Authorization': `Bearer ${SUPABASE_KEY}`,
-              'Range': `${from}-${to}`,
-              'Prefer': 'count=exact'
+              'Range': `${from}-${to}`
             }
           }
         );
 
         // 206 Partial Content 또는 200 OK 둘 다 처리
         if (!response.ok && response.status !== 206) {
-          throw new Error(`Supabase fetch 실패: ${response.status} ${response.statusText}`);
+          throw new Error(`데이터 로드 실패: ${response.status}`);
         }
 
         const chunk = await response.json();
@@ -324,7 +348,7 @@ function LegacyApp() {
     } finally {
       setLoading(false);
     }
-  }, [siteId, timeRange, customStart, customEnd]);
+  }, [siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, siteConfig]);
 
   // 페이지 타이틀 동적 업데이트
   useEffect(() => {
