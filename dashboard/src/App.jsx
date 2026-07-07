@@ -1565,78 +1565,83 @@ function App() {
               각 채널별 경고(빨강) 임계치(ppm) 및 수신 이메일 리스트를 제어합니다.
             </p>
 
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
-                    <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
-                    <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
-                    <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
-                    <th style={{ padding: '10px', textAlign: 'left' }}>알람 발송 기준</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {uniqueChannels.map(ch => {
-                    const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
-                    return (
-                      <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                        <td style={{ padding: '10px', fontWeight: 600 }}>
-                          {ch.name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>(Ch {ch.id})</span>
-                        </td>
-                        <td style={{ padding: '8px' }}>
-                          <input
-                            type="number"
-                            className="custom-select"
-                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
-                            value={alertLimits.caution !== undefined ? alertLimits.caution : ''}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setLocalAlerts(prev => ({
-                                ...prev,
-                                [ch.id]: { ...prev[ch.id], caution: val }
-                              }));
-                            }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px' }}>
-                          <input
-                            type="number"
-                            className="custom-select"
-                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
-                            value={alertLimits.warning !== undefined ? alertLimits.warning : ''}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setLocalAlerts(prev => ({
-                                ...prev,
-                                [ch.id]: { ...prev[ch.id], warning: val }
-                              }));
-                            }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px' }}>
-                          <select
-                            className="custom-select"
-                            style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
-                            value={alertLimits.alert_level || 'warning'}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setLocalAlerts(prev => ({
-                                ...prev,
-                                [ch.id]: { ...prev[ch.id], alert_level: val }
-                              }));
-                            }}
-                          >
-                            <option value="caution">주의 이상</option>
-                            <option value="warning">경고 이상</option>
-                          </select>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            {/* 채널별 임계값 설정 (Grid Card Layout) */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '12px'
+            }}>
+              {uniqueChannels.map(ch => {
+                const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
+                return (
+                  <div key={ch.id} style={{
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    padding: '10px',
+                    fontSize: '0.8rem'
+                  }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{ch.name}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Ch {ch.id}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>주의 (ppm):</span>
+                        <input
+                          type="number"
+                          className="custom-select"
+                          style={{ width: '80px', padding: '3px 6px', fontSize: '0.78rem', textAlign: 'right' }}
+                          value={alertLimits.caution !== undefined ? alertLimits.caution : ''}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setLocalAlerts(prev => ({
+                              ...prev,
+                              [ch.id]: { ...prev[ch.id], caution: val }
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>경고 (ppm):</span>
+                        <input
+                          type="number"
+                          className="custom-select"
+                          style={{ width: '80px', padding: '3px 6px', fontSize: '0.78rem', textAlign: 'right' }}
+                          value={alertLimits.warning !== undefined ? alertLimits.warning : ''}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setLocalAlerts(prev => ({
+                              ...prev,
+                              [ch.id]: { ...prev[ch.id], warning: val }
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>알림 발송:</span>
+                        <select
+                          className="custom-select"
+                          style={{ width: '80px', padding: '3px 4px', fontSize: '0.78rem' }}
+                          value={alertLimits.alert_level || 'warning'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setLocalAlerts(prev => ({
+                              ...prev,
+                              [ch.id]: { ...prev[ch.id], alert_level: val }
+                            }));
+                          }}
+                        >
+                          <option value="caution">주의 이상</option>
+                          <option value="warning">경고 이상</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
- 
+
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
                 🔑 대시보드 접속 패스코드 (Passcode) 변경
@@ -1649,54 +1654,6 @@ function App() {
                 value={passcodeChangeInput}
                 onChange={(e) => setPasscodeChangeInput(e.target.value)}
               />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                📧 알림 수신 이메일 주소
-              </label>
-              <input
-                type="text"
-                className="custom-select"
-                style={{ width: '100%', padding: '10px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                placeholder="알림을 받을 이메일 주소 입력 (쉼표 구분)"
-                value={alertEmails}
-                onChange={(e) => setAlertEmails(e.target.value)}
-              />
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                경고 기준치 초과 시 입력한 메일 주소로 알림이 자동 전송됩니다.
-              </span>
-            </div>
- 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                🤖 텔레그램 봇 토큰 (Telegram Bot Token)
-              </label>
-              <input
-                type="text"
-                className="custom-select"
-                style={{ width: '100%', padding: '10px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                placeholder="자체 텔레그램 봇 토큰 입력 (비워두면 기본 시스템 봇 사용)"
-                value={telegramBotToken}
-                onChange={(e) => setTelegramBotToken(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                ✈️ 알림 수신 텔레그램 Chat ID
-              </label>
-              <input
-                type="text"
-                className="custom-select"
-                style={{ width: '100%', padding: '10px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                placeholder="알림을 받을 텔레그램 Chat ID 입력 (쉼표 구분)"
-                value={telegramChatIds}
-                onChange={(e) => setTelegramChatIds(e.target.value)}
-              />
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
-                경고 기준치 초과 시 입력한 Chat ID(또는 단톡방 ID)로 텔레그램 푸시 알림이 자동 전송됩니다.
-              </span>
             </div>
  
             <button
@@ -2516,7 +2473,7 @@ function App() {
           {/* ============================================ */}
           {isConfigModalOpen && (
             <div className="modal-overlay" onClick={() => setIsConfigModalOpen(false)}>
-              <div className="glass-card modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px', width: '90%' }}>
+              <div className="glass-card modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
                 <div className="modal-header">
                   <h3>⚙️ 알림 임계값 관리 설정</h3>
                   <button className="modal-close-btn" onClick={() => setIsConfigModalOpen(false)}>✕</button>
@@ -2558,29 +2515,37 @@ function App() {
                     />
                   </div>
 
-                  <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-                    <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                      <thead>
-                        <tr style={{ background: 'var(--bg-card-header)', borderBottom: '1px solid var(--border-color)' }}>
-                          <th style={{ padding: '10px', textAlign: 'left' }}>채널 정보</th>
-                          <th style={{ padding: '10px', textAlign: 'left' }}>주의 기준치 (ppm)</th>
-                          <th style={{ padding: '10px', textAlign: 'left' }}>경고 기준치 (ppm)</th>
-                          <th style={{ padding: '10px', textAlign: 'left' }}>알람 발송 기준</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {uniqueChannels.map(ch => {
-                          const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
-                          return (
-                            <tr key={ch.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                              <td style={{ padding: '10px', fontWeight: 600 }}>
-                                {ch.name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>(Ch {ch.id})</span>
-                              </td>
-                              <td style={{ padding: '8px' }}>
+                  {/* 채널별 임계치 설정 (Grid Card Layout) */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '10px' }}>
+                      📊 채널별 경보 임계값 설정
+                    </label>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                      gap: '12px'
+                    }}>
+                      {uniqueChannels.map(ch => {
+                        const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
+                        return (
+                          <div key={ch.id} style={{
+                            background: 'rgba(255,255,255,0.02)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '6px',
+                            padding: '10px',
+                            fontSize: '0.8rem'
+                          }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                              <span>{ch.name}</span>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Ch {ch.id}</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>주의 (ppm):</span>
                                 <input
                                   type="number"
                                   className="custom-select"
-                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                                  style={{ width: '90px', padding: '3px 6px', fontSize: '0.78rem', textAlign: 'right' }}
                                   value={alertLimits.caution !== undefined ? alertLimits.caution : ''}
                                   onChange={(e) => {
                                     const val = parseFloat(e.target.value) || 0;
@@ -2590,12 +2555,13 @@ function App() {
                                     }));
                                   }}
                                 />
-                              </td>
-                              <td style={{ padding: '8px' }}>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>경고 (ppm):</span>
                                 <input
                                   type="number"
                                   className="custom-select"
-                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                                  style={{ width: '90px', padding: '3px 6px', fontSize: '0.78rem', textAlign: 'right' }}
                                   value={alertLimits.warning !== undefined ? alertLimits.warning : ''}
                                   onChange={(e) => {
                                     const val = parseFloat(e.target.value) || 0;
@@ -2605,11 +2571,12 @@ function App() {
                                     }));
                                   }}
                                 />
-                              </td>
-                              <td style={{ padding: '8px' }}>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>알림 발송:</span>
                                 <select
                                   className="custom-select"
-                                  style={{ width: '100%', padding: '6px 8px', boxSizing: 'border-box' }}
+                                  style={{ width: '90px', padding: '3px 4px', fontSize: '0.78rem' }}
                                   value={alertLimits.alert_level || 'warning'}
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -2622,70 +2589,11 @@ function App() {
                                   <option value="caution">주의 이상</option>
                                   <option value="warning">경고 이상</option>
                                 </select>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* 이메일 알림 수신 설정 */}
-                  <div style={{ marginTop: '20px' }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                      📧 알림 수신 이메일 주소
-                    </label>
-                    <input
-                      type="text"
-                      className="custom-select"
-                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                      placeholder="알림을 받을 이메일 주소를 입력하세요 (여러 개일 경우 쉼표로 구분. 예: admin@test.com, manager@test.com)"
-                      value={alertEmails}
-                      onChange={(e) => setAlertEmails(e.target.value)}
-                    />
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
-                      계측기 데이터가 설정된 경고 임계값을 초과하면, 입력한 이메일로 경고 알림 메일이 즉시 발송됩니다.
-                    </span>
-                  </div>
-
-                  {/* 텔레그램 봇 토큰 설정 */}
-                  <div style={{ marginTop: '20px' }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                      🤖 텔레그램 봇 토큰 (Telegram Bot Token)
-                    </label>
-                    <input
-                      type="text"
-                      className="custom-select"
-                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                      placeholder="자체 텔레그램 봇 토큰 입력 (비워두면 기본 시스템 봇 사용)"
-                      value={telegramBotToken}
-                      onChange={(e) => setTelegramBotToken(e.target.value)}
-                    />
-                  </div>
-
-                  {/* 텔레그램 알림 수신 설정 */}
-                  <div style={{ marginTop: '20px' }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                      ✈️ 알림 수신 텔레그램 Chat ID
-                    </label>
-                    <input
-                      type="text"
-                      className="custom-select"
-                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                      placeholder="알림을 받을 텔레그램 Chat ID를 입력하세요 (여러 개일 경우 쉼표로 구분. 예: 12345678, -100987654)"
-                      value={telegramChatIds}
-                      onChange={(e) => setTelegramChatIds(e.target.value)}
-                    />
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
-                      계측기 데이터가 설정된 경고 임계값을 초과하면, 입력한 Chat ID(또는 단톡방 ID)로 텔레그램 알림이 즉시 발송됩니다.
-                    </span>
-                    <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '8px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '6px', lineHeight: '1.5' }}>
-                      <strong>💡 텔레그램 Chat ID 확인 방법:</strong>
-                      <ol style={{ margin: '4px 0 0 0', paddingLeft: '16px' }}>
-                        <li>텔레그램에 <strong>@laskorea_Alert_bot</strong> 검색 후 <strong>[시작]</strong> 또는 <strong>/start</strong>를 입력하여 봇을 활성화합니다.</li>
-                        <li>자신의 숫자 ID를 확인하기 위해 텔레그램에 <strong>@userinfobot</strong> 검색 후 대화방에 입장합니다.</li>
-                        <li><strong>[시작]</strong>을 누르면 나오는 9~10자리 숫자 ID를 복사하여 위 입력창에 입력합니다.</li>
-                      </ol>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -2804,54 +2712,24 @@ function App() {
 
                   <div>
                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '6px' }}>
-                      알림 수단 선택
-                    </label>
-                    <div style={{ display: 'flex', gap: '16px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name="regType"
-                          value="telegram"
-                          checked={regType === 'telegram'}
-                          onChange={() => setRegType('telegram')}
-                        />
-                        ✈️ 텔레그램
-                      </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
-                        <input
-                          type="radio"
-                          name="regType"
-                          value="email"
-                          checked={regType === 'email'}
-                          onChange={() => setRegType('email')}
-                        />
-                        📧 이메일
-                      </label>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '6px' }}>
-                      {regType === 'telegram' ? '✈️ 텔레그램 Chat ID' : '📧 이메일 주소'}
+                      ✈️ 텔레그램 Chat ID
                     </label>
                     <input
                       type="text"
                       className="custom-select"
                       style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
-                      placeholder={regType === 'telegram' ? "9자리 또는 10자리 숫자 ID 입력" : "예: email@test.com"}
+                      placeholder="9자리 또는 10자리 숫자 ID 입력"
                       value={regValue}
                       onChange={(e) => setRegValue(e.target.value)}
                     />
-                    {regType === 'telegram' && (
-                      <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '8px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '6px', lineHeight: '1.5' }}>
-                        <strong>💡 텔레그램 Chat ID 확인 방법:</strong>
-                        <ol style={{ margin: '4px 0 0 0', paddingLeft: '16px' }}>
-                          <li>텔레그램에 <strong>@laskorea_Alert_bot</strong> 검색 후 <strong>[시작]</strong> 또는 <strong>/start</strong>를 입력하여 봇을 활성화합니다.</li>
-                          <li>자신의 숫자 ID를 확인하기 위해 텔레그램에 <strong>@userinfobot</strong> 검색 후 대화방에 입장합니다.</li>
-                          <li><strong>[시작]</strong>을 누르면 나오는 9~10자리 숫자 ID를 복사하여 위 입력창에 입력합니다.</li>
-                        </ol>
-                      </div>
-                    )}
+                    <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '8px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '6px', lineHeight: '1.5' }}>
+                      <strong>💡 텔레그램 Chat ID 확인 방법:</strong>
+                      <ol style={{ margin: '4px 0 0 0', paddingLeft: '16px' }}>
+                        <li>텔레그램에 <strong>@laskorea_Alert_bot</strong> 검색 후 <strong>[시작]</strong> 또는 <strong>/start</strong>를 입력하여 봇을 활성화합니다.</li>
+                        <li>자신의 숫자 ID를 확인하기 위해 텔레그램에 <strong>@userinfobot</strong> 검색 후 대화방에 입장합니다.</li>
+                        <li><strong>[시작]</strong>을 누르면 나오는 9~10자리 숫자 ID를 복사하여 위 입력창에 입력합니다.</li>
+                      </ol>
+                    </div>
                   </div>
                 </div>
 
