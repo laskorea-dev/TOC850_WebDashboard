@@ -1497,6 +1497,8 @@ class GUIUploaderApp:
 
     def _auto_minimize_if_startup(self):
         """기동 후 첫 동기화 성공 시 자동 최소화하여 메인 프로그램이 전면에 표시되도록 함"""
+        if self.is_paused:
+            return
         if self.startup_sync_pending:
             self.startup_sync_pending = False
             self.log_to_viewer("[자동 최소화] 초기 동기화 확인 완료. 프로그램을 최소화합니다.")
