@@ -224,7 +224,7 @@ function LegacyApp() {
         ? `${baseUrl}/site_config_v2`
         : `${baseUrl}/rest/v1/site_config_v2`;
 
-      const response = await fetch(`${configEndpoint}?or=(site_id.eq.${encodeURIComponent(siteSearchTerm)},site_name.eq.${encodeURIComponent(siteSearchTerm)})`, {
+      const response = await fetch(`${configEndpoint}?or=(site_id.ilike.${encodeURIComponent(siteSearchTerm)},site_name.ilike.${encodeURIComponent(siteSearchTerm)})`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
@@ -296,8 +296,8 @@ function LegacyApp() {
       // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
       const singleTableFilter = useSingleTable
         ? (deviceIdParam 
-            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
-            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
+            ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}` 
+            : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
         : '';
 
       let allData = [];
