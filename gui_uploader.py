@@ -454,7 +454,7 @@ class GUIUploaderApp:
         
         self.log_viewer = tk.Text(
             logger_frame, 
-            height=3, 
+            height=8, 
             bg=self.color_card_dark, 
             fg=self.color_text_main, 
             font=("Consolas", 8),
@@ -468,7 +468,7 @@ class GUIUploaderApp:
 
         # 디폴트 윈도우 사이즈 지정 및 초기화
         self.show_advanced = False
-        self.root.geometry("640x605")
+        self.root.geometry("640x720")
         self.update_status_badge()
         self.update_pause_button_style()
 
@@ -479,11 +479,11 @@ class GUIUploaderApp:
             self.adv_trigger_btn.configure(text="➖ 상세 인프라 설정 숨기기")
             self.build_advanced_ui()
             self.adv_frame.grid(row=7, column=0, columnspan=2, sticky=tk.NSEW, pady=(5, 5))
-            self.root.geometry("640x845")
+            self.root.geometry("640x960")
         else:
             self.adv_trigger_btn.configure(text="➕ 상세 인프라 설정 표시 (Supabase/SMTP/Telegram)")
             self.adv_frame.grid_forget()
-            self.root.geometry("640x605")
+            self.root.geometry("640x720")
 
     def build_advanced_ui(self):
         """숨겨진 상세 연결 및 알림 자격증명 UI 동적 생성"""
