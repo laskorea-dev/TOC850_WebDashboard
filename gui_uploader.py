@@ -1225,6 +1225,10 @@ class GUIUploaderApp:
                 toc_alert_high = alert_json
                 alert_emails = alert_json.get("alert_emails", "")
                 telegram_chat_ids = alert_json.get("telegram_chat_ids", "")
+                # 동적 변경된 텔레그램 봇 토큰 동기화
+                db_tg_token = alert_json.get("telegram_bot_token", "")
+                if db_tg_token:
+                    self.telegram_bot_token = db_tg_token
 
         # 알림 타입에 따라 수신인 선택
         recipients = ""
@@ -1358,6 +1362,11 @@ class GUIUploaderApp:
         if not isinstance(toc_alert_high, dict):
             return
             
+        # 동적 변경된 텔레그램 봇 토큰 동기화
+        db_tg_token = toc_alert_high.get("telegram_bot_token", "")
+        if db_tg_token:
+            self.telegram_bot_token = db_tg_token
+
         trigger_email = toc_alert_high.get("trigger_test_email", False)
         trigger_telegram = toc_alert_high.get("trigger_test_telegram", False)
         

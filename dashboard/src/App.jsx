@@ -235,9 +235,9 @@ function App() {
   const [alertEmails, setAlertEmails] = useState('');
   const [telegramChatIds, setTelegramChatIds] = useState('');
   const [siteNameInput, setSiteNameInput] = useState('');
+  const [telegramBotToken, setTelegramBotToken] = useState(''); // 텔레그램 봇 토큰 상태 추가
+  const [passcodeChangeInput, setPasscodeChangeInput] = useState(''); // 접속 패스코드 변경 상태 추가
   const [isPreviewMode, setIsPreviewMode] = useState(false); // 새 대시보드 미리보기 모드 상태
-
-  // 알림 수신 직접 등록 모달 상태
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [regName, setRegName] = useState('');
   const [regType, setRegType] = useState('telegram');
@@ -471,7 +471,43 @@ function App() {
     }
   }, [siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, isAdminParam, siteConfig]);
 
-  // 임계값 저장 API 호출 (Supabase PATCH)
+  // 텔레그램 API 직접 발송 함수 (Vercel/브라우저 직접 발송)
+  const sendTelegramAlert = useCallback(async (chatIds, text) => {
+    const botToken = telegramBotToken.trim() || siteConfig.toc_alert_high?.telegram_bot_token || '<TELEGRAM_BOT_TOKEN>';
+    const idArray = chatIds.split(',').map(id => id.trim()).filter(Boolean);
+    
+    if (idArray.length === 0) {
+      console.warn("발송할 텔레그램 Chat ID가 존재하지 않습니다.");
+      return false;
+    }
+    
+    let successCount = 0;
+    for (const chatId of idArray) {
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: text,
+            parse_mode: 'HTML'
+          })
+        });
+        if (response.ok) {
+          successCount++;
+        } else {
+          const err = await response.json();
+          console.error(`텔레그램 발송 실패 (${chatId}):`, err);
+        }
+      } catch (e) {
+        console.error(`텔레그램 API 통신 에러 (${chatId}):`, e);
+      }
+    }
+    return successCount > 0;
+  }, [telegramBotToken, siteConfig]);
+
   // 임계값 저장 API 호출 (Supabase PATCH)
   const saveSiteConfig = useCallback(async (updatedAlerts) => {
     try {
@@ -488,11 +524,18 @@ function App() {
       const telegramIds = receivers.filter(r => r.type === 'telegram').map(r => r.value).join(',');
       const emails = receivers.filter(r => r.type === 'email').map(r => r.value).join(',');
 
+      // 텔레그램 봇 토큰도 저장 오브젝트에 포함
+      const finalAlerts = {
+        ...updatedAlerts,
+        telegram_bot_token: telegramBotToken
+      };
+
       const payload = {
-        toc_alert_high: updatedAlerts,
+        toc_alert_high: finalAlerts,
         telegram_chat_ids: telegramIds || updatedAlerts.telegram_chat_ids || '',
         alert_emails: emails || updatedAlerts.alert_emails || '',
-        site_name: siteNameInput || siteConfig.site_name
+        site_name: siteNameInput || siteConfig.site_name,
+        passcode: passcodeChangeInput || siteConfig.passcode
       };
 
       const response = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
@@ -519,7 +562,7 @@ function App() {
       alert(`설정 저장 실패: ${err.message}`);
       return false;
     }
-  }, [siteConfig, loadSiteConfig, siteNameInput, deviceIdParam]);
+  }, [siteConfig, loadSiteConfig, siteNameInput, deviceIdParam, telegramBotToken, passcodeChangeInput]);
 
   // 알림 수신인 직접 등록 API (POST)
   const registerReceiver = useCallback(async () => {
@@ -606,7 +649,8 @@ function App() {
         ...alertObj,
         receivers: updatedReceivers,
         telegram_chat_ids: updatedTelegramIds,
-        alert_emails: updatedEmails
+        alert_emails: updatedEmails,
+        telegram_bot_token: telegramBotToken // 봇 토큰 유지
       };
 
       const patchRes = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
@@ -626,6 +670,10 @@ function App() {
 
       if (patchRes.ok) {
         alert("알림 수신인 등록 성공! 이제 해당 텔레그램/이메일로 경보 알림이 전송됩니다.");
+        if (regType === 'telegram') {
+          const welcomeMsg = `<b>🔔 TOC 실시간 경보 알림 수신 등록 완료</b>\n\n안녕하세요, <b>${regName.trim()}</b>님.\n${siteConfig.site_name || 'TOC 대시보드'}의 실시간 장애/경보 알림 수신처로 정상 등록되었습니다.\n\n등록 시각: ${new Date().toLocaleString()}`;
+          sendTelegramAlert(regValue.trim(), welcomeMsg);
+        }
         setRegName('');
         setRegValue('');
         setIsRegisterModalOpen(false);
@@ -640,7 +688,7 @@ function App() {
     } finally {
       setRegIsSending(false);
     }
-  }, [regName, regType, regValue, siteConfig, loadSiteConfig, deviceIdParam]);
+  }, [regName, regType, regValue, siteConfig, loadSiteConfig, deviceIdParam, telegramBotToken, sendTelegramAlert]);
 
   // 알림 수신인 삭제 API (DELETE)
   const deleteReceiver = useCallback(async (receiverValue) => {
@@ -676,6 +724,7 @@ function App() {
       }
       
       const receivers = alertObj.receivers || [];
+      const targetReceiver = receivers.find(r => r.value === receiverValue);
       const updatedReceivers = receivers.filter(r => r.value !== receiverValue);
       
       // Comma-separated strings
@@ -686,7 +735,8 @@ function App() {
         ...alertObj,
         receivers: updatedReceivers,
         telegram_chat_ids: updatedTelegramIds,
-        alert_emails: updatedEmails
+        alert_emails: updatedEmails,
+        telegram_bot_token: telegramBotToken // 봇 토큰 유지
       };
 
       const patchRes = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
@@ -706,6 +756,10 @@ function App() {
 
       if (patchRes.ok) {
         alert("알림 수신인이 삭제되었습니다.");
+        if (targetReceiver && targetReceiver.type === 'telegram') {
+          const leaveMsg = `<b>🔕 TOC 실시간 경보 알림 수신 해제 완료</b>\n\n안녕하세요, <b>${targetReceiver.name}</b>님.\n${siteConfig.site_name || 'TOC 대시보드'}의 실시간 알림 수신처에서 정상적으로 해제(삭제)되었습니다.\n\n처리 시각: ${new Date().toLocaleString()}`;
+          sendTelegramAlert(receiverValue, leaveMsg);
+        }
         loadSiteConfig(); // 설정 재로드
       } else {
         const errData = await patchRes.json();
@@ -715,7 +769,7 @@ function App() {
       console.error("수신인 삭제 실패:", err);
       alert(`수신인 삭제 실패: ${err.message}`);
     }
-  }, [siteConfig, loadSiteConfig]);
+  }, [siteConfig, loadSiteConfig, deviceIdParam, telegramBotToken, sendTelegramAlert]);
 
   // 모의 데이터 생성 API (POST)
   const insertMockData = useCallback(async () => {
@@ -886,8 +940,11 @@ function App() {
       
       const emails = siteConfig.toc_alert_high?.alert_emails || '';
       const telegrams = siteConfig.toc_alert_high?.telegram_chat_ids || '';
+      const botToken = siteConfig.toc_alert_high?.telegram_bot_token || '';
       setAlertEmails(emails);
       setTelegramChatIds(telegrams);
+      setTelegramBotToken(botToken);
+      setPasscodeChangeInput(siteConfig.passcode || '');
       setSiteNameInput(siteConfig.site_name || '');
     }
   }, [isConfigModalOpen, isAdminParam, uniqueChannels, siteConfig]);
@@ -1583,6 +1640,20 @@ function App() {
                 </tbody>
               </table>
             </div>
+ 
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                🔑 대시보드 접속 패스코드 (Passcode) 변경
+              </label>
+              <input
+                type="text"
+                className="custom-select"
+                style={{ width: '100%', padding: '10px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                placeholder="대시보드 접속 및 설정 변경 패스코드 입력"
+                value={passcodeChangeInput}
+                onChange={(e) => setPasscodeChangeInput(e.target.value)}
+              />
+            </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
@@ -1599,6 +1670,20 @@ function App() {
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
                 경고 기준치 초과 시 입력한 메일 주소로 알림이 자동 전송됩니다.
               </span>
+            </div>
+ 
+            <div>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                🤖 텔레그램 봇 토큰 (Telegram Bot Token)
+              </label>
+              <input
+                type="text"
+                className="custom-select"
+                style={{ width: '100%', padding: '10px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                placeholder="자체 텔레그램 봇 토큰 입력 (비워두면 기본 시스템 봇 사용)"
+                value={telegramBotToken}
+                onChange={(e) => setTelegramBotToken(e.target.value)}
+              />
             </div>
 
             <div>
@@ -1617,7 +1702,7 @@ function App() {
                 경고 기준치 초과 시 입력한 Chat ID(또는 단톡방 ID)로 텔레그램 푸시 알림이 자동 전송됩니다.
               </span>
             </div>
-
+ 
             <button
               className="sim-btn"
               style={{ width: '100%', padding: '12px', fontSize: '0.9rem' }}
@@ -1635,13 +1720,14 @@ function App() {
                   alert("임계 기준값은 0 이상이어야 합니다.");
                   return;
                 }
-
+ 
                 const updatedConfig = {
                   ...localAlerts,
                   alert_emails: alertEmails,
-                  telegram_chat_ids: telegramChatIds
+                  telegram_chat_ids: telegramChatIds,
+                  telegram_bot_token: telegramBotToken // 봇 토큰 추가
                 };
-
+ 
                 await saveSiteConfig(updatedConfig);
               }}
             >
@@ -1738,32 +1824,28 @@ function App() {
                 >
                   테스트 메일 발송 신호 전송 ✉️
                 </button>
-                <button
-                  className="sim-btn"
-                  style={{ width: '100%', padding: '10px', fontSize: '0.85rem', background: 'linear-gradient(135deg, #0088cc 0%, #00a2ed 100%)', borderColor: '#00a2ed' }}
-                  onClick={async () => {
-                    if (!telegramChatIds) {
-                      alert("알림을 수신할 텔레그램 Chat ID를 먼저 설정하고 저장해 주세요.");
-                      return;
-                    }
-                    if (!window.confirm("현재 수신처로 테스트 텔레그램 메시지 전송 요청을 전달하시겠습니까?\n(로컬의 파이썬 업로더가 켜져 있어야 메시지가 발송됩니다.)")) {
-                      return;
-                    }
-                    const updatedConfig = {
-                      ...localAlerts,
-                      alert_emails: alertEmails,
-                      telegram_chat_ids: telegramChatIds,
-                      device_ids: deviceIds,
-                      trigger_test_telegram: true
-                    };
-                    const success = await saveSiteConfig(updatedConfig);
-                    if (success) {
-                      alert("텔레그램 발송 신호가 Supabase에 정상 등록되었습니다.\n로컬 업로더가 실시간 감지하여 테스트 메시지를 발송합니다.");
-                    }
-                  }}
-                >
-                  테스트 텔레그램 발송 신호 전송 ✈️
-                </button>
+                 <button
+                   className="sim-btn"
+                   style={{ width: '100%', padding: '10px', fontSize: '0.85rem', background: 'linear-gradient(135deg, #0088cc 0%, #00a2ed 100%)', borderColor: '#00a2ed' }}
+                   onClick={async () => {
+                     if (!telegramChatIds) {
+                       alert("알림을 수신할 텔레그램 Chat ID를 먼저 설정하고 저장해 주세요.");
+                       return;
+                     }
+                     if (!window.confirm("현재 설정된 수신처로 즉시 테스트 텔레그램 메시지를 발송하시겠습니까?")) {
+                       return;
+                     }
+                     const testMsg = `<b>[TOC 모의 텔레그램 알람] ${siteConfig.site_name || '대시보드'} 발송 검증</b>\n\n웹 대시보드(Vercel)에서 요청하신 텔레그램 즉시 발송 검증이 성공적으로 완료되었습니다!\n\n발송 시간: ${new Date().toLocaleString()}`;
+                     const success = await sendTelegramAlert(telegramChatIds, testMsg);
+                     if (success) {
+                       alert("텔레그램 테스트 메시지가 즉시 발송되었습니다! ✈️");
+                     } else {
+                       alert("텔레그램 발송에 실패했습니다. 봇 토큰과 Chat ID가 올바른지 확인해 주세요.");
+                     }
+                   }}
+                 >
+                   즉시 테스트 텔레그램 발송 ✈️
+                 </button>
               </div>
             </div>
           </div>
@@ -2465,6 +2547,21 @@ function App() {
                     />
                   </div>
 
+                  {/* 접속 비밀번호(Passcode) 변경 필드 */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                      🔑 대시보드 접속 패스코드 (Passcode) 변경
+                    </label>
+                    <input
+                      type="text"
+                      className="custom-select"
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      placeholder="대시보드 접속 및 설정 변경 시 사용할 패스코드를 입력하세요 (기본값: 850)"
+                      value={passcodeChangeInput}
+                      onChange={(e) => setPasscodeChangeInput(e.target.value)}
+                    />
+                  </div>
+
                   <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
                     <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                       <thead>
@@ -2555,6 +2652,21 @@ function App() {
                     </span>
                   </div>
 
+                  {/* 텔레그램 봇 토큰 설정 */}
+                  <div style={{ marginTop: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                      🤖 텔레그램 봇 토큰 (Telegram Bot Token)
+                    </label>
+                    <input
+                      type="text"
+                      className="custom-select"
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '0.85rem', boxSizing: 'border-box' }}
+                      placeholder="자체 텔레그램 봇 토큰 입력 (비워두면 기본 시스템 봇 사용)"
+                      value={telegramBotToken}
+                      onChange={(e) => setTelegramBotToken(e.target.value)}
+                    />
+                  </div>
+
                   {/* 텔레그램 알림 수신 설정 */}
                   <div style={{ marginTop: '20px' }}>
                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
@@ -2571,6 +2683,14 @@ function App() {
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
                       계측기 데이터가 설정된 경고 임계값을 초과하면, 입력한 Chat ID(또는 단톡방 ID)로 텔레그램 알림이 즉시 발송됩니다.
                     </span>
+                    <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '8px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '6px', lineHeight: '1.5' }}>
+                      <strong>💡 텔레그램 Chat ID 확인 방법:</strong>
+                      <ol style={{ margin: '4px 0 0 0', paddingLeft: '16px' }}>
+                        <li>텔레그램에 <strong>@laskorea_Alert_bot</strong> 검색 후 <strong>[시작]</strong> 또는 <strong>/start</strong>를 입력하여 봇을 활성화합니다.</li>
+                        <li>자신의 숫자 ID를 확인하기 위해 텔레그램에 <strong>@userinfobot</strong> 검색 후 대화방에 입장합니다.</li>
+                        <li><strong>[시작]</strong>을 누르면 나오는 9~10자리 숫자 ID를 복사하여 위 입력창에 입력합니다.</li>
+                      </ol>
+                    </div>
                   </div>
 
                   {/* 알림 수신자 목록 관리 */}
@@ -2595,7 +2715,7 @@ function App() {
                                 <th style={{ padding: '8px', textAlign: 'left' }}>이름</th>
                                 <th style={{ padding: '8px', textAlign: 'left' }}>구분</th>
                                 <th style={{ padding: '8px', textAlign: 'left' }}>수신처 (ID / 이메일)</th>
-                                {isAdminParam && <th style={{ padding: '8px', textAlign: 'center', width: '60px' }}>관리</th>}
+                                <th style={{ padding: '8px', textAlign: 'center', width: '60px' }}>관리</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -2604,17 +2724,15 @@ function App() {
                                   <td style={{ padding: '8px', fontWeight: 600 }}>{r.name}</td>
                                   <td style={{ padding: '8px' }}>{r.type === 'telegram' ? '✈️ 텔레그램' : '📧 이메일'}</td>
                                   <td style={{ padding: '8px', fontFamily: 'monospace' }}>{r.value}</td>
-                                  {isAdminParam && (
-                                    <td style={{ padding: '6px', textAlign: 'center' }}>
-                                      <button 
-                                        className="sim-btn" 
-                                        style={{ padding: '3px 8px', fontSize: '0.72rem', background: 'rgba(235, 94, 94, 0.15)', borderColor: 'rgba(235, 94, 94, 0.3)', color: 'var(--accent-rose)' }}
-                                        onClick={() => deleteReceiver(r.value)}
-                                      >
-                                        삭제
-                                      </button>
-                                    </td>
-                                  )}
+                                  <td style={{ padding: '6px', textAlign: 'center' }}>
+                                    <button 
+                                      className="sim-btn" 
+                                      style={{ padding: '3px 8px', fontSize: '0.72rem', background: 'rgba(235, 94, 94, 0.15)', borderColor: 'rgba(235, 94, 94, 0.3)', color: 'var(--accent-rose)' }}
+                                      onClick={() => deleteReceiver(r.value)}
+                                    >
+                                      삭제
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -2646,7 +2764,8 @@ function App() {
                     const updatedConfig = {
                       ...localAlerts,
                       alert_emails: alertEmails,
-                      telegram_chat_ids: telegramChatIds
+                      telegram_chat_ids: telegramChatIds,
+                      telegram_bot_token: telegramBotToken // 봇 토큰 추가
                     };
 
                     const success = await saveSiteConfig(updatedConfig);
@@ -2728,9 +2847,14 @@ function App() {
                       onChange={(e) => setRegValue(e.target.value)}
                     />
                     {regType === 'telegram' && (
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block', lineHeight: '1.4' }}>
-                        * 텔레그램에서 <strong>laskorea_Alert_bot</strong> 봇을 검색하여 <strong>[시작]</strong> 버튼을 누른 뒤 본인의 챗 ID를 확인하여 입력해 주셔야 알림이 수신됩니다.
-                      </span>
+                      <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '8px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '6px', lineHeight: '1.5' }}>
+                        <strong>💡 텔레그램 Chat ID 확인 방법:</strong>
+                        <ol style={{ margin: '4px 0 0 0', paddingLeft: '16px' }}>
+                          <li>텔레그램에 <strong>@laskorea_Alert_bot</strong> 검색 후 <strong>[시작]</strong> 또는 <strong>/start</strong>를 입력하여 봇을 활성화합니다.</li>
+                          <li>자신의 숫자 ID를 확인하기 위해 텔레그램에 <strong>@userinfobot</strong> 검색 후 대화방에 입장합니다.</li>
+                          <li><strong>[시작]</strong>을 누르면 나오는 9~10자리 숫자 ID를 복사하여 위 입력창에 입력합니다.</li>
+                        </ol>
+                      </div>
                     )}
                   </div>
                 </div>
