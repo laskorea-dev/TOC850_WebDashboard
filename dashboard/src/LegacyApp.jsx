@@ -225,10 +225,14 @@ function LegacyApp() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/site_config_v2`
-        : `${baseUrl}/rest/v1/site_config_v2`;
+        ? `${baseUrl}/device_config`
+        : `${baseUrl}/rest/v1/device_config`;
 
-      const response = await fetch(`${configEndpoint}?or=(site_id.ilike.${encodeURIComponent(siteSearchTerm)},site_name.ilike.${encodeURIComponent(siteSearchTerm)})`, {
+      const filter = deviceIdParam
+        ? `or=(device_id.ilike.${encodeURIComponent(deviceIdParam)},site_name.ilike.${encodeURIComponent(deviceIdParam)})`
+        : `or=(site_id.ilike.${encodeURIComponent(siteId || siteSearchTerm)},site_name.ilike.${encodeURIComponent(siteId || siteSearchTerm)})`;
+
+      const response = await fetch(`${configEndpoint}?${filter}`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
@@ -236,7 +240,7 @@ function LegacyApp() {
       });
 
       if (response.ok) {
-        const confList = await response.ok ? await response.json() : [];
+        const confList = await response.json();
         if (Array.isArray(confList) && confList.length > 0) {
           const conf = confList[0];
           let alertObj = null;
@@ -250,6 +254,7 @@ function LegacyApp() {
             }
           }
           setSiteConfig({
+            device_id: conf.device_id,
             site_id: conf.site_id,
             passcode: conf.passcode || '850',
             site_name: conf.site_name || 'LAS TOC-850 온라인 계측 모니터링 대시보드',
@@ -261,7 +266,7 @@ function LegacyApp() {
         }
       }
     } catch (err) {
-      console.error("site_config 로드 실패, 기본설정 폴백 사용:", err);
+      console.error("device_config 로드 실패, 기본설정 폴백 사용:", err);
     }
 
     // 로딩 완료 처리 (폴백 값 유지 및 V2 단일 테이블 기본값 보장)
@@ -270,7 +275,7 @@ function LegacyApp() {
       toc_alert_high: prev.toc_alert_high || { use_single_table: true },
       loading: false
     }));
-  }, [siteSearchTerm]);
+  }, [siteSearchTerm, deviceIdParam, siteId]);
 
   // =========================================================================
   // 공통 엔드포인트 빌더

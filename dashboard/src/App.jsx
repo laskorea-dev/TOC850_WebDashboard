@@ -259,10 +259,14 @@ function App() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/site_config_v2`
-        : `${baseUrl}/rest/v1/site_config_v2`;
+        ? `${baseUrl}/device_config`
+        : `${baseUrl}/rest/v1/device_config`;
 
-      const response = await fetch(`${configEndpoint}?or=(site_id.eq.${encodeURIComponent(siteSearchTerm)},site_name.eq.${encodeURIComponent(siteSearchTerm)})`, {
+      const filter = deviceIdParam
+        ? `or=(device_id.ilike.${encodeURIComponent(deviceIdParam)},site_name.ilike.${encodeURIComponent(deviceIdParam)})`
+        : `or=(site_id.ilike.${encodeURIComponent(siteId || siteSearchTerm)},site_name.ilike.${encodeURIComponent(siteId || siteSearchTerm)})`;
+
+      const response = await fetch(`${configEndpoint}?${filter}`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
@@ -270,7 +274,7 @@ function App() {
       });
 
       if (response.ok) {
-        const confList = response.ok ? await response.json() : [];
+        const confList = await response.json();
         if (Array.isArray(confList) && confList.length > 0) {
           const conf = confList[0];
           let alertObj = null;
@@ -284,6 +288,7 @@ function App() {
             }
           }
           setSiteConfig({
+            device_id: conf.device_id,
             site_id: conf.site_id,
             passcode: conf.passcode || '850',
             site_name: conf.site_name || 'LAS TOC-850 온라인 계측 모니터링 대시보드',
@@ -297,7 +302,7 @@ function App() {
         }
       }
     } catch (err) {
-      console.error("site_config 로드 실패, 기본설정 폴백 사용:", err);
+      console.error("device_config 로드 실패, 기본설정 폴백 사용:", err);
     }
 
     // 로딩 완료 처리 (폴백 값 유지 및 V2 단일 테이블 기본값 보장)
@@ -306,7 +311,7 @@ function App() {
       toc_alert_high: prev.toc_alert_high || { use_single_table: true },
       loading: false
     }));
-  }, [siteSearchTerm]);
+  }, [siteSearchTerm, deviceIdParam, siteId]);
 
   // 대시보드 내의 고유 채널(번호와 이름의 쌍) 목록 추출
   const uniqueChannels = useMemo(() => {
@@ -358,8 +363,8 @@ function App() {
       // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
       const singleTableFilter = useSingleTable
         ? (deviceIdParam 
-            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
-            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
+            ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}` 
+            : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
         : '';
 
       let allData = [];
@@ -419,6 +424,7 @@ function App() {
   }, [siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, isAdminParam, siteConfig]);
 
   // 임계값 저장 API 호출 (Supabase PATCH)
+  // 임계값 저장 API 호출 (Supabase PATCH)
   const saveSiteConfig = useCallback(async (updatedAlerts) => {
     try {
       if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -426,8 +432,8 @@ function App() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/site_config_v2`
-        : `${baseUrl}/rest/v1/site_config_v2`;
+        ? `${baseUrl}/device_config`
+        : `${baseUrl}/rest/v1/device_config`;
 
       // receivers가 있다면 flat fields 동기화
       const receivers = updatedAlerts.receivers || [];
@@ -441,7 +447,7 @@ function App() {
         site_name: siteNameInput || siteConfig.site_name
       };
 
-      const response = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+      const response = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
         method: 'PATCH',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -465,7 +471,7 @@ function App() {
       alert(`설정 저장 실패: ${err.message}`);
       return false;
     }
-  }, [siteConfig, loadSiteConfig, siteNameInput]);
+  }, [siteConfig, loadSiteConfig, siteNameInput, deviceIdParam]);
 
   // 알림 수신인 직접 등록 API (POST)
   const registerReceiver = useCallback(async () => {
@@ -503,19 +509,19 @@ function App() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/site_config_v2`
-        : `${baseUrl}/rest/v1/site_config_v2`;
+        ? `${baseUrl}/device_config`
+        : `${baseUrl}/rest/v1/device_config`;
 
       // 1. 최신 설정 다시 로드하여 동시성 제어
-      const res = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+      const res = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
         }
       });
-      if (!res.ok) throw new Error('현재 지점 설정을 가져올 수 없습니다.');
+      if (!res.ok) throw new Error('현재 기기 설정을 가져올 수 없습니다.');
       const dataList = await res.json();
-      if (!dataList || dataList.length === 0) throw new Error('등록된 지점 설정이 없습니다.');
+      if (!dataList || dataList.length === 0) throw new Error('등록된 기기 설정이 없습니다.');
       
       const currentConfig = dataList[0];
       let alertObj = {};
@@ -555,7 +561,7 @@ function App() {
         alert_emails: updatedEmails
       };
 
-      const patchRes = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+      const patchRes = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
         method: 'PATCH',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -586,7 +592,7 @@ function App() {
     } finally {
       setRegIsSending(false);
     }
-  }, [regName, regType, regValue, siteConfig, loadSiteConfig]);
+  }, [regName, regType, regValue, siteConfig, loadSiteConfig, deviceIdParam]);
 
   // 알림 수신인 삭제 API (DELETE)
   const deleteReceiver = useCallback(async (receiverValue) => {
@@ -599,19 +605,19 @@ function App() {
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
       const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/site_config_v2`
-        : `${baseUrl}/rest/v1/site_config_v2`;
+        ? `${baseUrl}/device_config`
+        : `${baseUrl}/rest/v1/device_config`;
 
       // 1. 최신 설정 다시 로드
-      const res = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+      const res = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
         }
       });
-      if (!res.ok) throw new Error('현재 지점 설정을 가져올 수 없습니다.');
+      if (!res.ok) throw new Error('현재 기기 설정을 가져올 수 없습니다.');
       const dataList = await res.json();
-      if (!dataList || dataList.length === 0) throw new Error('등록된 지점 설정이 없습니다.');
+      if (!dataList || dataList.length === 0) throw new Error('등록된 기기 설정이 없습니다.');
       
       const currentConfig = dataList[0];
       let alertObj = {};
@@ -635,7 +641,7 @@ function App() {
         alert_emails: updatedEmails
       };
 
-      const patchRes = await fetch(`${configEndpoint}?site_id=eq.${encodeURIComponent(siteConfig.site_id)}`, {
+      const patchRes = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
         method: 'PATCH',
         headers: {
           'apikey': SUPABASE_KEY,

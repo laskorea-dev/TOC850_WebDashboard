@@ -328,19 +328,26 @@ class GUIUploaderApp:
         site_name_entry = tk.Entry(self.settings_frame, textvariable=self.site_name_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
         site_name_entry.grid(row=3, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
 
-        # Site ID 지점/기기 식별자 ID (수정 가능)
-        site_id_label = tk.Label(self.settings_frame, text="지점/기기 식별자 ID (Site ID - 고유값)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        # Site ID 지점 식별자 ID (수정 가능)
+        site_id_label = tk.Label(self.settings_frame, text="지점 식별자 ID (Site ID)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
         site_id_label.grid(row=2, column=1, sticky=tk.W, pady=(0, 2), padx=(5, 0))
         
         site_id_entry = tk.Entry(self.settings_frame, textvariable=self.site_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
         site_id_entry.grid(row=3, column=1, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(5, 0))
 
+        # Device ID 기기 고유 ID (수정 가능)
+        device_id_label = tk.Label(self.settings_frame, text="기기 고유 ID (Device ID)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        device_id_label.grid(row=4, column=0, sticky=tk.W, pady=(0, 2), padx=(0, 5))
+        
+        device_id_entry = tk.Entry(self.settings_frame, textvariable=self.device_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        device_id_entry.grid(row=5, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
+
         # 동기화 주기 (분) 입력
         interval_label = tk.Label(self.settings_frame, text="자동 동기화 주기 (분 단위)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
-        interval_label.grid(row=4, column=0, sticky=tk.W, pady=(0, 2), padx=(0, 5))
+        interval_label.grid(row=4, column=1, sticky=tk.W, pady=(0, 2), padx=(5, 0))
         
         interval_entry = tk.Entry(self.settings_frame, textvariable=self.interval_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        interval_entry.grid(row=5, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
+        interval_entry.grid(row=5, column=1, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(5, 0))
 
         # 시작 시 자동 동기화 활성화 체크박스
         self.start_active_chk = tk.Checkbutton(
@@ -354,7 +361,7 @@ class GUIUploaderApp:
             activeforeground=self.color_text_main,
             font=("Segoe UI", 8, "bold")
         )
-        self.start_active_chk.grid(row=5, column=1, sticky=tk.W, pady=(0, 8), padx=(5, 0))
+        self.start_active_chk.grid(row=6, column=0, sticky=tk.W, pady=(0, 8), padx=(0, 5))
 
         # 상세 설정 펼치기 트리거 버튼 (Collapsible Trigger)
         self.adv_trigger_btn = tk.Button(
@@ -369,7 +376,7 @@ class GUIUploaderApp:
             cursor="hand2",
             command=self.toggle_advanced_settings
         )
-        self.adv_trigger_btn.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(5, 5))
+        self.adv_trigger_btn.grid(row=6, column=1, sticky=tk.W, pady=(0, 8), padx=(5, 0))
 
         # 상세 인프라 설정 컨테이너 프레임 (초기에는 숨김 상태)
         self.adv_frame = tk.Frame(self.settings_frame, bg=self.color_bg)
@@ -585,16 +592,16 @@ class GUIUploaderApp:
         # 모든 시도가 실패했을 때 예외 발생
         raise last_exception
 
-    def bg_update_site_name_on_supabase(self, site_id, site_name, supabase_url, supabase_key):
-        """Supabase site_config_v2의 site_name 컬럼을 백그라운드에서 PATCH로 비동기 업데이트합니다."""
+    def bg_update_site_name_on_supabase(self, device_id, site_name, supabase_url, supabase_key):
+        """Supabase device_config의 site_name 컬럼을 백그라운드에서 PATCH로 비동기 업데이트합니다."""
         if not supabase_url or not supabase_key:
             return
         try:
             base_url = supabase_url.rstrip('/')
             if "/rest/v1" in base_url:
-                config_url = f"{base_url}/site_config_v2?site_id=eq.{urllib.parse.quote(site_id)}"
+                config_url = f"{base_url}/device_config?device_id=eq.{urllib.parse.quote(device_id)}"
             else:
-                config_url = f"{base_url}/rest/v1/site_config_v2?site_id=eq.{urllib.parse.quote(site_id)}"
+                config_url = f"{base_url}/rest/v1/device_config?device_id=eq.{urllib.parse.quote(device_id)}"
             
             payload = {
                 "site_name": site_name
@@ -608,7 +615,7 @@ class GUIUploaderApp:
             }
             status, _ = self.make_supabase_request(config_url, data=data_bytes, headers=headers, method="PATCH", timeout=30)
             if status in [200, 201, 204]:
-                self.msg_queue.put(("log", f"[원격 설정 갱신] Supabase 지점 한글명이 '{site_name}'으로 실시간 업데이트되었습니다."))
+                self.msg_queue.put(("log", f"[원격 설정 갱신] Supabase 기기 '{device_id}'의 원격 한글 지점명이 '{site_name}'으로 업데이트되었습니다."))
         except Exception as e:
             self.msg_queue.put(("log", f"[원격 설정 갱신 오류] Supabase 사이트 한글명 업데이트 실패: {e}"))
 
@@ -673,6 +680,8 @@ class GUIUploaderApp:
             smtp_password = self.smtp_pw_var.get().strip() if hasattr(self, 'smtp_pw_var') else self.smtp_password
             smtp_use_tls = self.smtp_tls_var.get() if hasattr(self, 'smtp_tls_var') else self.smtp_use_tls
 
+            device_id = self.device_id_var.get().strip()
+
             if not db_path:
                 messagebox.showerror("저장 실패", "SQLite DB 파일 경로는 필수 입력 항목입니다.")
                 return
@@ -680,17 +689,21 @@ class GUIUploaderApp:
                 messagebox.showerror("저장 실패", "사이트 이름은 필수 입력 항목입니다.")
                 return
             if not site_id:
-                messagebox.showerror("저장 실패", "지점/기기 식별자 ID는 필수 입력 항목입니다.")
+                messagebox.showerror("저장 실패", "지점 식별자 ID는 필수 입력 항목입니다.")
+                return
+            if not device_id:
+                messagebox.showerror("저장 실패", "기기 고유 ID는 필수 입력 항목입니다.")
                 return
 
             self.site_id = site_id
+            self.device_id = device_id
 
             config_data = {
                 "db_path": db_path,
                 "google_sheet_name": self.sheet_name,
                 "supabase_table": supabase_table,
                 "site_id": site_id,
-                "device_id": self.device_id,
+                "device_id": device_id,
                 "site_name": site_name,
                 "interval_seconds": interval_seconds,
                 "last_datetime": self.last_upload_time if self.last_upload_time != "None (First Run)" else "",
@@ -726,11 +739,11 @@ class GUIUploaderApp:
             self.smtp_password = smtp_password
             self.smtp_use_tls = smtp_use_tls
 
-            # Supabase site_config_v2의 site_name 컬럼 비동기 업데이트
+            # Supabase device_config의 site_name 컬럼 비동기 업데이트
             if supabase_url and supabase_key:
                 threading.Thread(
                     target=self.bg_update_site_name_on_supabase,
-                    args=(self.site_id, site_name, supabase_url, supabase_key),
+                    args=(self.device_id, site_name, supabase_url, supabase_key),
                     daemon=True
                 ).start()
 
@@ -898,7 +911,7 @@ class GUIUploaderApp:
             else:
                 req_url = f"{base_url}/rest/v1/{self.supabase_table}"
             
-            req_url += f"?select=Date_Time&Site_ID=eq.{urllib.parse.quote(self.site_id)}&order=Date_Time.desc&limit=1"
+            req_url += f"?select=Date_Time&Device_ID=eq.{urllib.parse.quote(self.device_id)}&order=Date_Time.desc&limit=1"
             
             headers = {
                 "apikey": self.supabase_key,
@@ -1081,14 +1094,14 @@ class GUIUploaderApp:
             self.msg_queue.put(("log", f"[Supabase API 연결 오류] 호스트 연결 실패: {e}"))
             return False
 
-    def auto_register_site_config(self):
-        """Supabase site_config_v2 테이블에 현재 site_id용 기본 설정을 자동 등록합니다."""
+    def auto_register_device_config(self):
+        """Supabase device_config 테이블에 현재 device_id용 기본 설정을 자동 등록합니다."""
         try:
             base_url = self.supabase_url.rstrip('/')
             if "/rest/v1" in base_url:
-                config_url = f"{base_url}/site_config_v2"
+                config_url = f"{base_url}/device_config"
             else:
-                config_url = f"{base_url}/rest/v1/site_config_v2"
+                config_url = f"{base_url}/rest/v1/device_config"
                 
             default_toc_alert = {
                 "use_single_table": True,
@@ -1100,8 +1113,9 @@ class GUIUploaderApp:
             }
             
             payload = {
+                "device_id": self.device_id,
                 "site_id": self.site_id,
-                "site_name": self.site_id,
+                "site_name": self.site_name,
                 "passcode": "850",
                 "toc_alert_high": default_toc_alert,
                 "use_single_table": True
@@ -1116,7 +1130,7 @@ class GUIUploaderApp:
             }
             status, _ = self.make_supabase_request(config_url, data=data_bytes, headers=headers, method="POST", timeout=30)
             if status in [200, 201, 204]:
-                self.msg_queue.put(("log", f"[자동 등록 성공] Supabase에 '{self.site_id}' 사이트 설정이 성공적으로 자동 등록되었습니다!"))
+                self.msg_queue.put(("log", f"[자동 등록 성공] Supabase에 '{self.device_id}' 기기 설정이 성공적으로 자동 등록되었습니다!"))
                 return True
             else:
                 self.msg_queue.put(("log", f"[자동 등록 실패] 서버 응답 상태: {status}"))
@@ -1124,14 +1138,14 @@ class GUIUploaderApp:
             self.msg_queue.put(("log", f"[자동 등록 오류] {e}"))
         return False
 
-    def fetch_site_config(self, allow_auto_reg=True):
-        """Supabase에서 사이트 설정(임계값 및 이메일 수신 목록)을 실시간으로 가져옵니다."""
+    def fetch_device_config(self, allow_auto_reg=True):
+        """Supabase에서 기기 설정(임계값 및 이메일 수신 목록)을 실시간으로 가져옵니다."""
         try:
             base_url = self.supabase_url.rstrip('/')
             if "/rest/v1" in base_url:
-                config_url = f"{base_url}/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
+                config_url = f"{base_url}/device_config?device_id=eq.{urllib.parse.quote(self.device_id)}"
             else:
-                config_url = f"{base_url}/rest/v1/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
+                config_url = f"{base_url}/rest/v1/device_config?device_id=eq.{urllib.parse.quote(self.device_id)}"
                 
             headers = {
                 "apikey": self.supabase_key,
@@ -1147,9 +1161,9 @@ class GUIUploaderApp:
                         self.msg_queue.put(("site_name", remote_name))
                     return cfg
                 elif isinstance(res_data, list) and len(res_data) == 0 and allow_auto_reg:
-                    self.msg_queue.put(("log", f"[자동 등록] Supabase에 '{self.site_id}' 설정이 없어 새 등록을 시도합니다..."))
-                    if self.auto_register_site_config():
-                        return self.fetch_site_config(allow_auto_reg=False)
+                    self.msg_queue.put(("log", f"[자동 등록] Supabase에 '{self.device_id}' 설정이 없어 새 등록을 시도합니다..."))
+                    if self.auto_register_device_config():
+                        return self.fetch_device_config(allow_auto_reg=False)
         except Exception as e:
             self.msg_queue.put(("log", f"[설정 정보 로드 실패] 오류: {e}"))
         return None
@@ -1157,7 +1171,7 @@ class GUIUploaderApp:
     def check_and_send_alerts(self, records):
         """새로 수집된 레코드들의 TOC 수치가 경고 임계값을 초과하는지 검사하고 알림을 발송합니다."""
         # 1. 사이트 설정 로드 (임계값 및 수신 목록)
-        config_data = self.fetch_site_config()
+        config_data = self.fetch_device_config()
         
         toc_alert_high = {}
         alert_emails = ""
@@ -1281,7 +1295,7 @@ class GUIUploaderApp:
 
     def bg_check_test_alert_trigger(self):
         """Supabase 설정을 GET 하여 trigger_test_email 또는 trigger_test_telegram 플래그가 참인지 확인하고, 참이면 메일을 발송한 뒤 플래그를 내립니다."""
-        config_data = self.fetch_site_config()
+        config_data = self.fetch_device_config()
         if not config_data:
             return
             
@@ -1387,9 +1401,9 @@ class GUIUploaderApp:
             try:
                 base_url = self.supabase_url.rstrip('/')
                 if "/rest/v1" in base_url:
-                    config_url = f"{base_url}/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
+                    config_url = f"{base_url}/device_config?device_id=eq.{urllib.parse.quote(self.device_id)}"
                 else:
-                    config_url = f"{base_url}/rest/v1/site_config_v2?site_id=eq.{urllib.parse.quote(self.site_id)}"
+                    config_url = f"{base_url}/rest/v1/device_config?device_id=eq.{urllib.parse.quote(self.device_id)}"
                 
                 headers = {
                     "apikey": self.supabase_key,
