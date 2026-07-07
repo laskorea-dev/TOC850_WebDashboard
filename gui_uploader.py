@@ -176,6 +176,7 @@ class GUIUploaderApp:
                     log_queue=self.msg_queue
                 )
                 
+                self.is_paused = config.get("is_paused", False)
                 config_mock = config.get("is_mock", True)
                 if self.supabase_url and self.supabase_key:
                     self.is_mock = config_mock
@@ -215,9 +216,10 @@ class GUIUploaderApp:
 
         # Tkinter StringVars로 설정값 필드 매핑
         self.db_path_var = tk.StringVar(value=self.db_path)
-        self.site_id_var = tk.StringVar(value=self.site_id)
         self.device_id_var = tk.StringVar(value=self.device_id)
         self.site_name_var = tk.StringVar(value=self.site_name)
+        self.interval_var = tk.StringVar(value=str(self.interval_seconds // 60))
+        self.start_active_var = tk.BooleanVar(value=not self.is_paused)
         self.sub_url_var = tk.StringVar(value=self.supabase_url)
         self.sub_table_var = tk.StringVar(value=self.supabase_table)
         self.sub_key_var = tk.StringVar(value=self.supabase_key)
@@ -276,9 +278,9 @@ class GUIUploaderApp:
         stats_frame.columnconfigure(0, weight=1)
         stats_frame.columnconfigure(1, weight=1)
         
-        site_title = tk.Label(stats_frame, text="연동 지점 코드 (Site ID)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
+        site_title = tk.Label(stats_frame, text="사이트 이름 (Site Name)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
         site_title.grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
-        self.site_val_label = tk.Label(stats_frame, text=self.site_id, font=("Segoe UI", 11, "bold"), fg=self.color_text_main, bg=self.color_card)
+        self.site_val_label = tk.Label(stats_frame, text=self.site_name, font=("Segoe UI", 11, "bold"), fg=self.color_text_main, bg=self.color_card)
         self.site_val_label.grid(row=1, column=0, sticky=tk.W, pady=(0, 8))
         
         timer_title = tk.Label(stats_frame, text="다음 자동 동기화 카운트다운", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_card)
@@ -318,12 +320,12 @@ class GUIUploaderApp:
         btn_browse.grid(row=0, column=1, sticky=tk.E)
         self.bind_hover(btn_browse, self.color_border, self.color_card)
         
-        # Site ID 지점 설정 입력
-        site_id_label = tk.Label(self.settings_frame, text="지점 식별자 코드 (Site ID)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
-        site_id_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 2), padx=(0, 5))
+        # 사이트 이름 입력
+        site_name_label = tk.Label(self.settings_frame, text="사이트 이름 (Site Name)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        site_name_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 2), padx=(0, 5))
         
-        site_id_entry = tk.Entry(self.settings_frame, textvariable=self.site_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        site_id_entry.grid(row=3, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
+        site_name_entry = tk.Entry(self.settings_frame, textvariable=self.site_name_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        site_name_entry.grid(row=3, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
 
         # Device ID 장치명 (읽기 전용)
         device_id_label = tk.Label(self.settings_frame, text="인식된 장치명 (Device ID - 읽기 전용)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
@@ -332,12 +334,26 @@ class GUIUploaderApp:
         device_id_entry = tk.Entry(self.settings_frame, textvariable=self.device_id_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_muted, bd=0, highlightthickness=1, highlightbackground=self.color_border, state="readonly")
         device_id_entry.grid(row=3, column=1, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(5, 0))
 
-        # Site Name 사이트 이름 (한글 지점명)
-        site_name_label = tk.Label(self.settings_frame, text="사이트 이름 (지점 한글명 - site_name)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
-        site_name_label.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
+        # 동기화 주기 (분) 입력
+        interval_label = tk.Label(self.settings_frame, text="자동 동기화 주기 (분 단위)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        interval_label.grid(row=4, column=0, sticky=tk.W, pady=(0, 2), padx=(0, 5))
         
-        site_name_entry = tk.Entry(self.settings_frame, textvariable=self.site_name_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        site_name_entry.grid(row=5, column=0, columnspan=2, sticky=tk.EW, ipady=4, pady=(0, 8))
+        interval_entry = tk.Entry(self.settings_frame, textvariable=self.interval_var, font=("Consolas", 9), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
+        interval_entry.grid(row=5, column=0, sticky=tk.EW, ipady=4, pady=(0, 8), padx=(0, 5))
+
+        # 시작 시 자동 동기화 활성화 체크박스
+        self.start_active_chk = tk.Checkbutton(
+            self.settings_frame, 
+            text="시작 시 자동 동기화 활성화", 
+            variable=self.start_active_var, 
+            fg=self.color_text_main, 
+            bg=self.color_bg, 
+            selectcolor=self.color_card_dark, 
+            activebackground=self.color_bg, 
+            activeforeground=self.color_text_main,
+            font=("Segoe UI", 8, "bold")
+        )
+        self.start_active_chk.grid(row=5, column=1, sticky=tk.W, pady=(0, 8), padx=(5, 0))
 
         # 상세 설정 펼치기 트리거 버튼 (Collapsible Trigger)
         self.adv_trigger_btn = tk.Button(
@@ -610,40 +626,50 @@ class GUIUploaderApp:
         """현재 UI상에 입력된 모든 설정을 uploader_config.json 파일에 영구 저장합니다."""
         try:
             db_path = self.db_path_var.get().strip()
-            site_id = self.site_id_var.get().strip()
             site_name = self.site_name_var.get().strip()
-            supabase_url = self.sub_url_var.get().strip()
-            supabase_table = self.sub_table_var.get().strip()
-            supabase_key = self.sub_key_var.get().strip()
-            alert_type = self.alert_type_var.get().strip()
-            telegram_bot_token = self.tg_token_var.get().strip()
-            smtp_server = self.smtp_server_var.get().strip()
-            smtp_port = int(self.smtp_port_var.get().strip() or "587")
-            smtp_user = self.smtp_user_var.get().strip()
-            smtp_password = self.smtp_pw_var.get().strip()
-            smtp_use_tls = self.smtp_tls_var.get()
+            
+            # 동기화 주기 파싱 및 검증
+            try:
+                interval_minutes = float(self.interval_var.get().strip())
+                if interval_minutes <= 0:
+                    raise ValueError
+                interval_seconds = int(interval_minutes * 60)
+            except ValueError:
+                messagebox.showerror("저장 실패", "동기화 주기는 0보다 큰 숫자여야 합니다.")
+                return
+
+            is_paused = not self.start_active_var.get()
+            
+            # 상세 설정 필드들은 StringVars가 존재할 경우에만 가져오고, 없으면 기존 값을 유지합니다.
+            supabase_url = self.sub_url_var.get().strip() if hasattr(self, 'sub_url_var') else self.supabase_url
+            supabase_table = self.sub_table_var.get().strip() if hasattr(self, 'sub_table_var') else self.supabase_table
+            supabase_key = self.sub_key_var.get().strip() if hasattr(self, 'sub_key_var') else self.supabase_key
+            alert_type = self.alert_type_var.get().strip() if hasattr(self, 'alert_type_var') else self.alert_type
+            telegram_bot_token = self.tg_token_var.get().strip() if hasattr(self, 'tg_token_var') else self.telegram_bot_token
+            smtp_server = self.smtp_server_var.get().strip() if hasattr(self, 'smtp_server_var') else self.smtp_server
+            smtp_port = int(self.smtp_port_var.get().strip() or "587") if hasattr(self, 'smtp_port_var') else self.smtp_port
+            smtp_user = self.smtp_user_var.get().strip() if hasattr(self, 'smtp_user_var') else self.smtp_user
+            smtp_password = self.smtp_pw_var.get().strip() if hasattr(self, 'smtp_pw_var') else self.smtp_password
+            smtp_use_tls = self.smtp_tls_var.get() if hasattr(self, 'smtp_tls_var') else self.smtp_use_tls
 
             if not db_path:
                 messagebox.showerror("저장 실패", "SQLite DB 파일 경로는 필수 입력 항목입니다.")
                 return
-            if not site_id:
-                messagebox.showerror("저장 실패", "지점 식별자(Site ID)는 필수 입력 항목입니다.")
-                return
             if not site_name:
-                messagebox.showerror("저장 실패", "사이트 이름(site_name)은 필수 입력 항목입니다.")
+                messagebox.showerror("저장 실패", "사이트 이름은 필수 입력 항목입니다.")
                 return
 
             config_data = {
                 "db_path": db_path,
                 "google_sheet_name": self.sheet_name,
                 "supabase_table": supabase_table,
-                "site_id": site_id,
+                "site_id": self.site_id,
                 "device_id": self.device_id,
                 "site_name": site_name,
-                "interval_seconds": self.interval_seconds,
+                "interval_seconds": interval_seconds,
                 "last_datetime": self.last_upload_time if self.last_upload_time != "None (First Run)" else "",
                 "last_query": self.last_query,
-                "is_paused": self.is_paused,
+                "is_paused": is_paused,
                 "is_mock": self.is_mock,
                 "supabase_url": supabase_url,
                 "supabase_key": supabase_key,
@@ -660,8 +686,9 @@ class GUIUploaderApp:
                 json.dump(config_data, f, indent=4, ensure_ascii=False)
 
             self.db_path = db_path
-            self.site_id = site_id
             self.site_name = site_name
+            self.interval_seconds = interval_seconds
+            self.is_paused = is_paused
             self.supabase_url = supabase_url
             self.supabase_table = supabase_table
             self.supabase_key = supabase_key
@@ -677,7 +704,7 @@ class GUIUploaderApp:
             if supabase_url and supabase_key:
                 threading.Thread(
                     target=self.bg_update_site_name_on_supabase,
-                    args=(site_id, site_name, supabase_url, supabase_key),
+                    args=(self.site_id, site_name, supabase_url, supabase_key),
                     daemon=True
                 ).start()
 
@@ -728,7 +755,7 @@ class GUIUploaderApp:
         if hasattr(self, 'dest_val_label'):
             self.dest_val_label.configure(text=self.get_dest_desc())
         if hasattr(self, 'site_val_label'):
-            self.site_val_label.configure(text=self.site_id)
+            self.site_val_label.configure(text=self.site_name)
 
     def log_to_viewer(self, message):
         """UI 가동 로그 창에 실시간 정보 추가"""
@@ -1404,6 +1431,7 @@ class GUIUploaderApp:
                         self.site_name = content
                         self.site_name_var.set(content)
                         self.save_config_quietly()
+                        self.refresh_destination_label()
                 elif msg_type == "success_empty":
                     self._auto_minimize_if_startup()
                 elif msg_type == "error":
