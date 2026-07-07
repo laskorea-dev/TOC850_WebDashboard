@@ -270,7 +270,7 @@ function LegacyApp() {
   }, [siteSearchTerm]);
 
   // =========================================================================
-  // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
+  // Supabase 페이지네이션 Fetch — 전체 데이터 로드 (차트는 클라이언트 필터링)
   // =========================================================================
   const loadData = useCallback(async () => {
     if (!hasSiteParam) return;
@@ -291,8 +291,6 @@ function LegacyApp() {
         ? `${baseUrl}/${targetTable}`
         : `${baseUrl}/rest/v1/${targetTable}`;
 
-      // 서버 사이드 날짜 쿼리 파라미터 빌드
-      const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
       
       // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
       const singleTableFilter = useSingleTable
@@ -309,9 +307,9 @@ function LegacyApp() {
         const to = from + PAGE_SIZE - 1;
         setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
 
-        // PostgREST 날짜 필터(filterParams) 주입
+        // 전체 데이터 로드 (시간 범위 필터링은 차트에서 클라이언트사이드로 처리)
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.desc${filterParams}${singleTableFilter}`,
+          `${endpoint}?select=*&order=Date_Time.desc${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
@@ -350,7 +348,7 @@ function LegacyApp() {
     } finally {
       setLoading(false);
     }
-  }, [siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, siteConfig]);
+  }, [siteSearchTerm, deviceIdParam, siteConfig]);
 
   // 페이지 타이틀 동적 업데이트
   useEffect(() => {
