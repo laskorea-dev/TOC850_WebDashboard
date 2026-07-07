@@ -77,7 +77,8 @@ const normalizeData = (items) => {
 // 날짜 파싱 유틸 (YYYY-MM-DD HH:MM:SS → Date)
 const parseDate = (dateStr) => {
   if (!dateStr) return new Date(0);
-  return new Date(dateStr.replace(/-/g, '/'));
+  const isoStr = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T');
+  return new Date(isoStr);
 };
 
 // ISO datetime-local 포맷 (input용)
