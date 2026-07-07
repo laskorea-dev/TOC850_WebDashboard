@@ -117,3 +117,13 @@
 * [x] **업로더 GUI 내에 지점/기기 식별자 ID (Site ID - 고유값) 입력 및 변경 제어창 신설 (state="normal")**
 * [x] **설정 저장 시 site_id 값 유효성 검사 적용 및 Supabase site_config_v2의 해당 식별자 갱신 로직 연동**
 * [x] **바이너리 재빌드 (gui_uploader_v5.1.exe) 및 배포 디렉토리 업데이트 완료**
+
+---
+
+### Phase 15: Supabase V3 기기 설정 테이블 신설 및 대시보드/업로더 다중 기기 독립 관리 (완료 100%)
+* [x] **기기 고유 ID (device_id)를 기본키로 사용하는 device_config 설정 테이블 신설 스키마 DDL 작성**
+* [x] **웹 대시보드에서 URL 파라미터(?site= 및 ?device=)에 따라 데이터 조회(Device_ID 혹은 Site_ID 기준) 및 설정 동기화 분기 쿼리 구현**
+* [x] **업로더 프로그램의 REST API 조회 및 갱신 대상을 신설 device_config 테이블로 전면 변경하고 device_id 고유키 기준으로 동작 구현**
+* [x] **업로더 증분점 데이터 최종 시각 쿼리를 Site_ID가 아닌 Device_ID 기준으로 정밀화하여 다중 기기 충돌 유실 방지**
+* [x] **업로더 GUI 내에 Site ID와 Device ID를 둘 다 명시적으로 입력하고 수동 편집할 수 있도록 UI 그리드 재구조화**
+* [x] **최종 소스 반영 바이너리 (gui_uploader_v5.1.exe) 재빌드 및 배포 패키지 업데이트 완료**
