@@ -21,6 +21,7 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
 const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
 const SUPABASE_MEASUREMENT_TABLE = import.meta.env.VITE_SUPABASE_MEASUREMENT_TABLE || "measure_logs_v2";
 const PAGE_SIZE = 1000; // Supabase 기본 limit
+const TABLE_FETCH_LIMIT = 500; // 테이블용 최근 N건 제한
 
 // 차트 선 색상 매핑
 const LINE_COLORS = {
@@ -149,8 +150,10 @@ function LegacyApp() {
     return siteId || deviceIdParam || SUPABASE_TABLE;
   }, [siteId, deviceIdParam]);
 
-  const [data, setData] = useState([]);
+  const [data, setData] = useState([]);           // 차트 전용 (시간 범위 필터링됨)
+  const [tableData, setTableData] = useState([]);  // 테이블 전용 (최근 N건)
   const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState('');
   const [error, setError] = useState(null);
 
@@ -270,34 +273,39 @@ function LegacyApp() {
   }, [siteSearchTerm]);
 
   // =========================================================================
-  // Supabase 페이지네이션 Fetch — 전체 데이터 로드 (차트는 클라이언트 필터링)
+  // 공통 엔드포인트 빌더
   // =========================================================================
-  const loadData = useCallback(async () => {
+  const buildEndpoint = useCallback(() => {
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
+    }
+    const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+    const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+    const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
+    const endpoint = baseUrl.includes('/rest/v1')
+      ? `${baseUrl}/${targetTable}`
+      : `${baseUrl}/rest/v1/${targetTable}`;
+    const singleTableFilter = useSingleTable
+      ? (deviceIdParam
+          ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}`
+          : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
+      : '';
+    return { endpoint, singleTableFilter };
+  }, [siteSearchTerm, deviceIdParam, siteConfig]);
+
+  // =========================================================================
+  // 차트 전용 Fetch — 선택한 시간 범위의 데이터만 서버사이드 쿼리
+  // =========================================================================
+  const loadChartData = useCallback(async () => {
     if (!hasSiteParam) return;
-    if (siteConfig.loading) return; // 설정 정보 로드 완료 시까지 대기
+    if (siteConfig.loading) return;
 
     setLoading(true);
     setError(null);
-    setLoadProgress('연결 중...');
+    setLoadProgress('차트 데이터 연결 중...');
     try {
-      if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
-      }
-
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
-      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
-      const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${targetTable}`
-        : `${baseUrl}/rest/v1/${targetTable}`;
-
-      
-      // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
-      const singleTableFilter = useSingleTable
-        ? (deviceIdParam 
-            ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}` 
-            : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
-        : '';
+      const { endpoint, singleTableFilter } = buildEndpoint();
+      const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
 
       let allData = [];
       let from = 0;
@@ -305,11 +313,10 @@ function LegacyApp() {
 
       while (hasMore) {
         const to = from + PAGE_SIZE - 1;
-        setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
+        setLoadProgress(`차트 ${allData.length.toLocaleString()}건 로딩 중...`);
 
-        // 전체 데이터 로드 (시간 범위 필터링은 차트에서 클라이언트사이드로 처리)
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.desc${singleTableFilter}`,
+          `${endpoint}?select=*&order=Date_Time.asc${filterParams}${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
@@ -319,36 +326,63 @@ function LegacyApp() {
           }
         );
 
-        // 206 Partial Content 또는 200 OK 둘 다 처리
         if (!response.ok && response.status !== 206) {
-          throw new Error(`데이터 로드 실패: ${response.status}`);
+          throw new Error(`차트 데이터 로드 실패: ${response.status}`);
         }
 
         const chunk = await response.json();
-
         if (!Array.isArray(chunk) || chunk.length === 0) {
           hasMore = false;
         } else {
           allData = allData.concat(chunk);
           from += PAGE_SIZE;
-
-          // 반환된 건수가 PAGE_SIZE보다 적으면 마지막 페이지
-          if (chunk.length < PAGE_SIZE) {
-            hasMore = false;
-          }
+          if (chunk.length < PAGE_SIZE) hasMore = false;
         }
       }
 
-      setLoadProgress(`총 ${allData.length.toLocaleString()}건 로드 완료`);
-      const normalized = normalizeData(allData);
-      setData(normalized);
+      setLoadProgress(`차트 ${allData.length.toLocaleString()}건 로드 완료`);
+      setData(normalizeData(allData));
     } catch (err) {
       console.error(err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [siteSearchTerm, deviceIdParam, siteConfig]);
+  }, [siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, siteConfig, buildEndpoint]);
+
+  // =========================================================================
+  // 테이블 전용 Fetch — 최근 N건만 서버사이드 쿼리 (시간 범위 무관)
+  // =========================================================================
+  const loadTableData = useCallback(async () => {
+    if (!hasSiteParam) return;
+    if (siteConfig.loading) return;
+
+    setTableLoading(true);
+    try {
+      const { endpoint, singleTableFilter } = buildEndpoint();
+
+      const response = await fetch(
+        `${endpoint}?select=*&order=Date_Time.desc&limit=${TABLE_FETCH_LIMIT}${singleTableFilter}`,
+        {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+          }
+        }
+      );
+
+      if (!response.ok && response.status !== 206) {
+        throw new Error(`테이블 데이터 로드 실패: ${response.status}`);
+      }
+
+      const chunk = await response.json();
+      setTableData(normalizeData(Array.isArray(chunk) ? chunk : []));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [siteSearchTerm, deviceIdParam, siteConfig, buildEndpoint]);
 
   // 페이지 타이틀 동적 업데이트
   useEffect(() => {
@@ -364,57 +398,39 @@ function LegacyApp() {
     return () => clearInterval(interval);
   }, [loadSiteConfig]);
 
-  // 조회 필터 변경 또는 시간 경과 시 데이터 로드
+  // 차트 데이터 로드 (시간 범위 변경 시 재쿼리)
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 5 * 60 * 1000);
+    loadChartData();
+    const interval = setInterval(loadChartData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [loadChartData]);
+
+  // 테이블 데이터 로드 (사이트 변경 시에만 재쿼리, 시간 범위와 무관)
+  useEffect(() => {
+    loadTableData();
+    const interval = setInterval(loadTableData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loadTableData]);
 
   // =========================================================================
-  // 전체 데이터에서 사용 가능한 채널 목록
+  // 채널 목록 (차트+테이블 데이터 합산)
   // =========================================================================
   const allChannels = useMemo(() => {
     const channels = new Set();
     data.forEach(item => channels.add(item.Channel_Name));
+    tableData.forEach(item => channels.add(item.Channel_Name));
     return Array.from(channels).sort();
-  }, [data]);
-
-  // =========================================================================
-  // 트렌드 차트용 시간 필터링된 데이터
-  // =========================================================================
-  const trendFilteredData = useMemo(() => {
-    if (data.length === 0) return [];
-
-    const lastDate = parseDate(data[data.length - 1].Date_Time);
-
-    return data.filter(item => {
-      const itemDate = parseDate(item.Date_Time);
-
-      if (timeRange === '24h') {
-        return (lastDate - itemDate) <= 24 * 60 * 60 * 1000;
-      } else if (timeRange === '7d') {
-        return (lastDate - itemDate) <= 7 * 24 * 60 * 60 * 1000;
-      } else if (timeRange === '30d') {
-        return (lastDate - itemDate) <= 30 * 24 * 60 * 60 * 1000;
-      } else if (timeRange === 'custom') {
-        const start = customStart ? new Date(customStart) : new Date(0);
-        const end = customEnd ? new Date(customEnd) : new Date();
-        return itemDate >= start && itemDate <= end;
-      }
-      // 'All'
-      return true;
-    });
-  }, [data, timeRange, customStart, customEnd]);
+  }, [data, tableData]);
 
   // =========================================================================
   // 동적 버킷 크기 결정 + 다중 채널 시계열 차트 데이터 생성
   // =========================================================================
-  const chartData = useMemo(() => {
-    if (trendFilteredData.length === 0) return [];
+  // data는 이미 서버사이드에서 시간 범위 필터링됨 → 바로 차트용 버킷 데이터 생성
+  const chartBucketData = useMemo(() => {
+    if (data.length === 0) return [];
 
     // 데이터 포인트 수에 따라 버킷 크기 자동 결정
-    const dataCount = trendFilteredData.length;
+    const dataCount = data.length;
     let bucketMinutes;
     if (dataCount <= 200) {
       bucketMinutes = 15;    // 15분 버킷
@@ -430,7 +446,7 @@ function LegacyApp() {
 
     const timeSlots = {};
 
-    trendFilteredData.forEach(item => {
+    data.forEach(item => {
       const d = parseDate(item.Date_Time);
       if (isNaN(d.getTime())) return;
 
@@ -472,14 +488,14 @@ function LegacyApp() {
     });
 
     return result;
-  }, [trendFilteredData, selectedAttr]);
+  }, [data, selectedAttr]);
 
   // 트렌드에 실제 등장하는 채널들
   const trendChannels = useMemo(() => {
     const channels = new Set();
-    trendFilteredData.forEach(item => channels.add(item.Channel_Name));
+    data.forEach(item => channels.add(item.Channel_Name));
     return Array.from(channels);
-  }, [trendFilteredData]);
+  }, [data]);
 
   // 현재 표시 중인 채널들 (숨긴 채널 제외)
   const visibleChannels = useMemo(() => {
@@ -488,10 +504,10 @@ function LegacyApp() {
 
   // Y축 자동 계산용 (절대 최소/최대)
   const { absMin, absMax } = useMemo(() => {
-    if (visibleChannels.length === 0 || chartData.length === 0) return { absMin: 0, absMax: 100 };
+    if (visibleChannels.length === 0 || chartBucketData.length === 0) return { absMin: 0, absMax: 100 };
     let min = Infinity;
     let max = -Infinity;
-    chartData.forEach(slot => {
+    chartBucketData.forEach(slot => {
       visibleChannels.forEach(ch => {
         const val = slot[ch];
         if (val !== undefined && val !== null) {
@@ -506,7 +522,7 @@ function LegacyApp() {
       absMin: Math.max(0, Math.floor(min - padding)),
       absMax: Math.ceil(max + padding)
     };
-  }, [visibleChannels, chartData]);
+  }, [visibleChannels, chartBucketData]);
 
   // Y축 도메인: 수동 입력값 우선, 없으면 표시 중인 채널 기준 오토스케일
   const yDomain = useMemo(() => {
@@ -538,17 +554,17 @@ function LegacyApp() {
 
   // 데이터 시간 범위 표시
   const dataTimeRange = useMemo(() => {
-    if (trendFilteredData.length === 0) return '';
-    const first = trendFilteredData[0].Date_Time;
-    const last = trendFilteredData[trendFilteredData.length - 1].Date_Time;
+    if (data.length === 0) return '';
+    const first = data[0].Date_Time;
+    const last = data[data.length - 1].Date_Time;
     return `${first} ~ ${last}`;
-  }, [trendFilteredData]);
+  }, [data]);
 
   // =========================================================================
   // 테이블용 필터링 + 정렬 (최근 데이터 먼저)
   // =========================================================================
   const tableFilteredData = useMemo(() => {
-    return data.filter(item => {
+    return tableData.filter(item => {
       // 채널 필터
       if (tableChannelFilter !== 'All' && item.Channel_Name !== tableChannelFilter) {
         return false;
@@ -570,11 +586,9 @@ function LegacyApp() {
         if (!match) return false;
       }
       return true;
-    }).sort((a, b) => {
-      // 최근 데이터 먼저 (desc)
-      return parseDate(b.Date_Time) - parseDate(a.Date_Time);
     });
-  }, [data, tableChannelFilter, tableTocMin, tableTocMax, searchQuery]);
+    // tableData는 이미 Date_Time.desc로 정렬되어 서버에서 옴
+  }, [tableData, tableChannelFilter, tableTocMin, tableTocMax, searchQuery]);
 
   // 날짜로 점프 기능
   const handleJumpToDate = useCallback(() => {
@@ -842,7 +856,7 @@ function LegacyApp() {
           <p>LAS KOREA 제공 · 총 {data.length.toLocaleString()}건 수집</p>
         </div>
         <div className="header-controls">
-          <button className="filter-btn active" onClick={loadData}>
+          <button className="filter-btn active" onClick={() => { loadChartData(); loadTableData(); }}>
             {loading ? '로딩 중...' : '새로고침 🔄'}
           </button>
         </div>
@@ -859,7 +873,7 @@ function LegacyApp() {
         <div className="glass-card empty-placeholder" style={{ borderColor: 'var(--accent-rose)' }}>
           <h2 style={{ color: 'var(--accent-rose)' }}>클라우드 연결 오류</h2>
           <p>{error}</p>
-          <button className="sim-btn" style={{ background: 'var(--accent-rose)' }} onClick={loadData}>연결 재시도 🔄</button>
+          <button className="sim-btn" style={{ background: 'var(--accent-rose)' }} onClick={() => { loadChartData(); loadTableData(); }}>연결 재시도 🔄</button>
         </div>
       ) : (
         <>
@@ -872,7 +886,7 @@ function LegacyApp() {
                 <h3 className="chart-title">TOC & Signal Multi-Series Trend</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: '4px' }}>
                   {dataTimeRange && `📅 ${dataTimeRange}`}
-                  {trendFilteredData.length > 0 && ` · ${trendFilteredData.length.toLocaleString()}건`}
+                  {data.length > 0 && ` · ${data.length.toLocaleString()}건`}
                 </p>
               </div>
 
@@ -1000,13 +1014,13 @@ function LegacyApp() {
                 )}
               </div>
               <div style={{ flex: 1, height: '100%', minWidth: 0 }}>
-              {chartData.length === 0 ? (
+              {chartBucketData.length === 0 ? (
                 <div className="empty-placeholder" style={{ padding: '40px 0' }}>
                   <p>선택한 조건에 부합하는 시계열 데이터가 없습니다.</p>
                 </div>
               ) : (
                 <ResponsiveContainer>
-                  <LineChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <LineChart data={chartBucketData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                     <XAxis
                       dataKey="ShortTime"
@@ -1037,13 +1051,13 @@ function LegacyApp() {
                         name={chName}
                         stroke={LINE_COLORS[chName] || LINE_COLORS['기타 채널']}
                         strokeWidth={hiddenChannels.has(chName) ? 0 : 2}
-                        dot={!hiddenChannels.has(chName) && chartData.length <= 100 ? { r: 3, strokeWidth: 1 } : false}
+                        dot={!hiddenChannels.has(chName) && chartBucketData.length <= 100 ? { r: 3, strokeWidth: 1 } : false}
                         activeDot={hiddenChannels.has(chName) ? false : { r: 5 }}
                         connectNulls={true}
                         hide={hiddenChannels.has(chName)}
                       />
                     ))}
-                    {chartData.length > 20 && (
+                    {chartBucketData.length > 20 && (
                       <Brush
                         dataKey="ShortTime"
                         height={28}
