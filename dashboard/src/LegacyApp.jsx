@@ -159,7 +159,7 @@ function LegacyApp() {
     passcode: '850', // 폴백용 기본 비밀번호
     site_name: 'LAS TOC-850 온라인 계측 모니터링 대시보드', // 폴백용 기본 사이트명
     is_active: true,
-    toc_alert_high: null,
+    toc_alert_high: { use_single_table: true }, // V2 B2B의 기본값은 단일 테이블 사용
     loading: true
   });
 
@@ -260,9 +260,10 @@ function LegacyApp() {
       console.error("site_config 로드 실패, 기본설정 폴백 사용:", err);
     }
 
-    // 로딩 완료 처리 (폴백 값 유지)
+    // 로딩 완료 처리 (폴백 값 유지 및 V2 단일 테이블 기본값 보장)
     setSiteConfig(prev => ({
       ...prev,
+      toc_alert_high: prev.toc_alert_high || { use_single_table: true },
       loading: false
     }));
   }, [siteSearchTerm]);
