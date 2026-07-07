@@ -160,11 +160,12 @@ function LegacyApp() {
   // site_config 설정 데이터 상태
   const [siteConfig, setSiteConfig] = useState({
     site_id: siteSearchTerm,
-    passcode: '850', // 폴백용 기본 비밀번호
+    passcode: '', // 폴백용 기본 비밀번호 제거 (무단 접속 방지)
     site_name: 'LAS TOC-850 온라인 계측 모니터링 대시보드', // 폴백용 기본 사이트명
     is_active: true,
     toc_alert_high: { use_single_table: true }, // V2 B2B의 기본값은 단일 테이블 사용
-    loading: true
+    loading: true,
+    isValidDevice: null // 기기 유효성 확인 상태 추가 (null: 검사중, true: 유효함, false: 존재 안함)
   });
 
   // 보안 접속
@@ -260,20 +261,29 @@ function LegacyApp() {
             site_name: conf.site_name || 'LAS TOC-850 온라인 계측 모니터링 대시보드',
             is_active: conf.is_active !== false,
             toc_alert_high: alertObj,
-            loading: false
+            loading: false,
+            isValidDevice: true
           });
+          return;
+        } else {
+          // 조회 결과가 빈 경우 -> 등록되지 않은 장치로 판단
+          setSiteConfig(prev => ({
+            ...prev,
+            loading: false,
+            isValidDevice: false
+          }));
           return;
         }
       }
     } catch (err) {
-      console.error("device_config 로드 실패, 기본설정 폴백 사용:", err);
+      console.error("device_config 로드 실패:", err);
     }
 
-    // 로딩 완료 처리 (폴백 값 유지 및 V2 단일 테이블 기본값 보장)
+    // 예외 발생 시 안전을 위해 접속 차단
     setSiteConfig(prev => ({
       ...prev,
-      toc_alert_high: prev.toc_alert_high || { use_single_table: true },
-      loading: false
+      loading: false,
+      isValidDevice: false
     }));
   }, [siteSearchTerm, deviceIdParam, siteId]);
 
@@ -788,6 +798,33 @@ function LegacyApp() {
           </p>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
             올바른 전용 지점 파라미터(`?site=지점명`)를 포함해 접속하시거나, 계정 관리자에게 문의 바랍니다.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 등록되지 않은 장비/지점 에러 화면
+  if (!siteConfig.loading && siteConfig.isValidDevice === false) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--bg-primary)',
+        fontFamily: 'var(--font-body)',
+        color: 'var(--text-main)',
+        padding: '20px'
+      }}>
+        <div className="glass-card" style={{ maxWidth: '450px', width: '100%', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '20px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <div style={{ fontSize: '3rem', color: 'var(--accent-rose)' }}>🔒</div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--accent-rose)' }}>접속 제한</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: '1.6' }}>
+            등록되지 않은 계측 장비 또는 지점 ID(<strong>{deviceIdParam || siteId || siteSearchTerm}</strong>)입니다.
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+            입력된 주소를 다시 확인하시거나, 시스템 관리자에게 문의하여 주십시오.
           </p>
         </div>
       </div>
