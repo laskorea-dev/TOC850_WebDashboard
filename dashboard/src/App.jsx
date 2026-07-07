@@ -1420,10 +1420,6 @@ function App() {
     );
   }
 
-  // 관리자 모드가 아니라면 기존 레거시 페이지를 그대로 렌더링
-  if (!isAdminParam) {
-    return <LegacyApp />;
-  }
 
   if (siteConfig.loading) {
     return (
