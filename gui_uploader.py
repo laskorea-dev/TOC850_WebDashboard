@@ -409,33 +409,9 @@ class GUIUploaderApp:
         )
         self.query_text.pack(fill=tk.X, padx=20, pady=(0, 10))
 
-        # 5. Logger Frame (가동 정보 로그)
-        logger_frame = tk.Frame(self.root, bg=self.color_bg)
-        logger_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 10))
-        
-        log_label = tk.Label(logger_frame, text="실시간 가동 로그 (Live System Logs)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
-        log_label.pack(anchor=tk.W, pady=(0, 2))
-        
-        scrollbar = tk.Scrollbar(logger_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.log_viewer = tk.Text(
-            logger_frame, 
-            height=3, 
-            bg=self.color_card_dark, 
-            fg=self.color_text_main, 
-            font=("Consolas", 8),
-            bd=0,
-            highlightthickness=1,
-            highlightbackground=self.color_border,
-            yscrollcommand=scrollbar.set
-        )
-        self.log_viewer.pack(fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.log_viewer.yview)
-
         # 6. Bottom Controls Frame
         btn_frame = tk.Frame(self.root, bg=self.color_bg)
-        btn_frame.pack(fill=tk.X, padx=20, pady=(0, 15))
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 15))
         
         self.btn_pause_text = tk.StringVar(value="일시정지 ⏸")
         self.btn_pause = tk.Button(
@@ -465,6 +441,30 @@ class GUIUploaderApp:
         )
         self.btn_sync_now.pack(side=tk.RIGHT)
         self.bind_hover(self.btn_sync_now, "#22d3ee", self.color_cyan)
+
+        # 5. Logger Frame (가동 정보 로그)
+        logger_frame = tk.Frame(self.root, bg=self.color_bg)
+        logger_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 10))
+        
+        log_label = tk.Label(logger_frame, text="실시간 가동 로그 (Live System Logs)", font=("Segoe UI", 8, "bold"), fg=self.color_text_muted, bg=self.color_bg)
+        log_label.pack(anchor=tk.W, pady=(0, 2))
+        
+        scrollbar = tk.Scrollbar(logger_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.log_viewer = tk.Text(
+            logger_frame, 
+            height=3, 
+            bg=self.color_card_dark, 
+            fg=self.color_text_main, 
+            font=("Consolas", 8),
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=self.color_border,
+            yscrollcommand=scrollbar.set
+        )
+        self.log_viewer.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.log_viewer.yview)
 
         # 디폴트 윈도우 사이즈 지정 및 초기화
         self.show_advanced = False
@@ -1032,8 +1032,10 @@ class GUIUploaderApp:
         for row in rows:
             record = {}
             for idx, col_name in enumerate(columns):
+                if col_name == 'MAXR':
+                    continue
                 val = row[idx]
-                if col_name in ['Channel', 'MAXR']:
+                if col_name == 'Channel':
                     record[col_name] = int(val) if val is not None else 0
                 elif col_name in ['TOC_Conc', 'DilutionFactor', 'MSIG', 'SLOP', 'ICPT', 'FACT', 'OFST']:
                     record[col_name] = float(val) if val is not None else 0.0
