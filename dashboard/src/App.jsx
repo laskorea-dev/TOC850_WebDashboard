@@ -912,6 +912,7 @@ function App() {
         let caution = 4500;
         let warning = 6000;
         let alert_level = "warning"; // 기본값 warning
+        let yaxis = "left"; // 기본축 yaxis 기본값
         if (chStr === '3') {
           caution = 35;
           warning = 50;
@@ -927,6 +928,7 @@ function App() {
             warning = configVal.warning !== undefined ? configVal.warning : warning;
             caution = configVal.caution !== undefined ? configVal.caution : caution;
             alert_level = configVal.alert_level || "warning";
+            yaxis = configVal.yaxis || "left";
           } else {
             const parsedVal = parseFloat(configVal);
             if (!isNaN(parsedVal)) {
@@ -934,7 +936,7 @@ function App() {
             }
           }
         }
-        initial[ch.id] = { caution, warning, alert_level };
+        initial[ch.id] = { caution, warning, alert_level, yaxis };
       });
       setLocalAlerts(initial);
       
