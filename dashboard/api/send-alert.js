@@ -90,21 +90,7 @@ export default async function handler(req, res) {
     if (tocVal < triggerLimit) {
       return res.status(200).json({ ok: true, message: 'Normal value' });
     }
-
-    // 4. 1시간 발송 쿨다운 검사
-    let lastAlertTimeMap = toc_alert_high.last_alert_time || {};
-    const lastAlertTimeStr = lastAlertTimeMap[channelId];
-    const now = new Date();
-
-    if (lastAlertTimeStr) {
-      const lastAlertTime = new Date(lastAlertTimeStr);
-      const diffSeconds = (now.getTime() - lastAlertTime.getTime()) / 1000;
-      if (diffSeconds < 3600) {
-        return res.status(200).json({ ok: true, message: `Cooldown active. ${Math.round(3600 - diffSeconds)}s left.` });
-      }
-    }
-
-    // 5. 알림 대상자 파싱
+    // 4. 알림 대상자 파싱
     const receivers = toc_alert_high.receivers || [];
     const telegramChatIds = receivers
       .filter(r => r.type === 'telegram' && r.value)
@@ -114,7 +100,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, message: 'No registered telegram receivers' });
     }
 
-    // 6. 텔레그램 알림 발송
+    // 5. 텔레그램 알림 발송
     const messageText = 
       `🚨 <b>TOC 수치 초과 [${alertTypeStr} 알림]</b>\n\n` +
       `🏢 <b>지점명</b>: ${siteName}\n` +
@@ -145,23 +131,6 @@ export default async function handler(req, res) {
       } catch (e) {
         console.error(`Telegram alert send error for chat_id ${chatId}:`, e);
       }
-    }
-
-    // 7. 발송이 한 번이라도 일어났다면 쿨다운 기록 저장
-    if (tgSent) {
-      lastAlertTimeMap[channelId] = now.toISOString();
-      toc_alert_high.last_alert_time = lastAlertTimeMap;
-
-      const updateUrl = `${cleanUrl}/rest/v1/device_config?device_id=eq.${encodeURIComponent(deviceId)}`;
-      await fetch(updateUrl, {
-        method: 'PATCH',
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ toc_alert_high })
-      });
     }
 
     return res.status(200).json({ ok: true, telegram: tgSent });
