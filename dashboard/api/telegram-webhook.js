@@ -70,7 +70,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    const deviceId = tokens[1].trim();
+    const deviceId = tokens[1].trim().toUpperCase();
     const username = tokens[2].trim();
     const inputPasscode = tokens[3].trim();
 

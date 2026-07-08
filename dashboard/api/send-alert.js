@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   }
 
   const record = body.record;
-  const deviceId = record.Device_ID || record.device_id;
+  const deviceId = (record.Device_ID || record.device_id || '').trim().toUpperCase();
   const channelId = String(record.Channel || record.channel || '');
   const tocVal = parseFloat(record.TOC_Conc || record.toc_conc || 0.0);
   const dateTime = record.Date_Time || record.date_time || new Date().toLocaleString();
