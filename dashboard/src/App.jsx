@@ -1917,9 +1917,6 @@ function App() {
           <p>LAS KOREA 제공 · 총 {data.length.toLocaleString()}건 수집</p>
         </div>
         <div className="header-controls" style={{ display: 'flex', gap: '8px' }}>
-          <button className="filter-btn" style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.3)', color: '#3b82f6' }} onClick={() => setIsRegisterModalOpen(true)}>
-            🔔 알림 수신 등록
-          </button>
           <button className="filter-btn" onClick={() => setIsConfigModalOpen(true)}>
             설정 ⚙️
           </button>
@@ -2480,9 +2477,8 @@ function App() {
                 </div>
 
                 <div className="modal-body" style={{ color: 'var(--text-main)' }}>
-                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>
-                    각 채널별로 경고(빨강)의 임계값(ppm)을 개별 지정할 수 있습니다.<br/>
-                    경고 값은 5000 이상으로 맞춰 설정하는 것이 권장됩니다.
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>
+                    각 채널별로 <strong style={{ color: '#eab308' }}>주의</strong>와 <strong style={{ color: '#ef4444' }}>경고</strong>의 임계값을 개별 지정 할 수 있습니다.
                   </p>
 
                   {/* 지점명(한글명) 입력 필드 */}
@@ -2599,9 +2595,18 @@ function App() {
 
                   {/* 알림 수신자 목록 관리 */}
                   <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '12px' }}>
-                      👥 등록된 알림 수신자 목록
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', margin: 0 }}>
+                        👥 등록된 알림 수신자 목록
+                      </label>
+                      <button
+                        className="sim-btn"
+                        style={{ padding: '4px 10px', fontSize: '0.75rem', background: 'rgba(59, 130, 246, 0.15)', borderColor: 'rgba(59, 130, 246, 0.3)', color: '#3b82f6', cursor: 'pointer' }}
+                        onClick={() => setIsRegisterModalOpen(true)}
+                      >
+                        + 수신자 추가 ✈️
+                      </button>
+                    </div>
                     {(() => {
                       const receiversList = siteConfig.toc_alert_high?.receivers || [];
                       if (receiversList.length === 0) {
