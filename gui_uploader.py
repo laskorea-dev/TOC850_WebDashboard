@@ -8,7 +8,6 @@ import time
 from datetime import datetime
 import urllib.request
 import urllib.parse
-from alerts import get_alert_sender
 
 
 # GUI libraries
@@ -38,7 +37,7 @@ DEFAULT_TABLE_NAME = "measure_logs_v2"
 class GUIUploaderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("TOC B2B 다중 계측기 자동 업로더 v5.0 (Supabase V2)")
+        self.root.title("TOC B2B 다중 계측기 자동 업로더 v5.3 (Supabase V2)")
         self.root.geometry("660x700")
         self.root.resizable(False, False)
         
@@ -55,12 +54,9 @@ class GUIUploaderApp:
         self.last_upload_time = "None (First Run)"
         self.last_query = "N/A"
         self.is_paused = False
-        self.last_alert_time = {}
-        self.check_config_timer = 9
         self.is_mock = True  # 기본값 mock
         self.supabase_url = ""
         self.supabase_key = ""
-        self.telegram_bot_token = ""
         
         # 설정 파일에서 사용자 설정값 로드
         self.load_config()
@@ -164,28 +160,7 @@ class GUIUploaderApp:
                 self.supabase_url = config.get("supabase_url", "")
                 self.supabase_key = config.get("supabase_key", "")
                 
-                # SMTP email configuration
-                self.smtp_server = config.get("smtp_server", "")
-                self.smtp_port = int(config.get("smtp_port", 587))
-                self.smtp_user = config.get("smtp_user", "")
-                self.smtp_password = config.get("smtp_password", "")
-                self.smtp_use_tls = config.get("smtp_use_tls", True)
-                
-                # Telegram bot configuration
-                self.telegram_bot_token = config.get("telegram_bot_token", "")
-                
-                # Alert Sender Initialization
-                self.alert_type = config.get("alert_type", "email")
-                self.alert_sender = get_alert_sender(
-                    self.alert_type,
-                    smtp_server=self.smtp_server,
-                    smtp_port=self.smtp_port,
-                    smtp_user=self.smtp_user,
-                    smtp_password=self.smtp_password,
-                    smtp_use_tls=self.smtp_use_tls,
-                    telegram_bot_token=self.telegram_bot_token,
-                    log_queue=self.msg_queue
-                )
+                # (SMTP 및 Telegram 알림 로직은 Vercel 서버리스로 이관됨)
                 
                 self.is_paused = config.get("is_paused", False)
                 if self.is_auto_config:
@@ -237,13 +212,7 @@ class GUIUploaderApp:
         self.sub_url_var = tk.StringVar(value=self.supabase_url)
         self.sub_table_var = tk.StringVar(value=self.supabase_table)
         self.sub_key_var = tk.StringVar(value=self.supabase_key)
-        self.alert_type_var = tk.StringVar(value=self.alert_type)
-        self.tg_token_var = tk.StringVar(value=self.telegram_bot_token)
-        self.smtp_server_var = tk.StringVar(value=self.smtp_server)
-        self.smtp_port_var = tk.StringVar(value=str(self.smtp_port))
-        self.smtp_user_var = tk.StringVar(value=self.smtp_user)
-        self.smtp_pw_var = tk.StringVar(value=self.smtp_password)
-        self.smtp_tls_var = tk.BooleanVar(value=self.smtp_use_tls)
+
 
         # 1. Header Frame (고유 로고/Badge 대체 및 호스트네임)
         header_frame = tk.Frame(self.root, bg=self.color_bg, pady=12, padx=20)
@@ -380,7 +349,7 @@ class GUIUploaderApp:
         # 상세 설정 펼치기 트리거 버튼 (Collapsible Trigger)
         self.adv_trigger_btn = tk.Button(
             self.settings_frame,
-            text="➕ 상세 인프라 설정 표시 (Supabase/SMTP/Telegram)",
+            text="➕ 상세 인프라 설정 표시 (Supabase)",
             font=("Segoe UI", 8, "bold"),
             fg=self.color_text_muted,
             bg=self.color_bg,
@@ -501,14 +470,14 @@ class GUIUploaderApp:
             self.adv_trigger_btn.configure(text="➖ 상세 인프라 설정 숨기기")
             self.build_advanced_ui()
             self.adv_frame.grid(row=7, column=0, columnspan=2, sticky=tk.NSEW, pady=(5, 5))
-            self.root.geometry("640x960")
+            self.root.geometry("640x800")
         else:
-            self.adv_trigger_btn.configure(text="➕ 상세 인프라 설정 표시 (Supabase/SMTP/Telegram)")
+            self.adv_trigger_btn.configure(text="➕ 상세 인프라 설정 표시 (Supabase)")
             self.adv_frame.grid_forget()
             self.root.geometry("640x720")
 
     def build_advanced_ui(self):
-        """숨겨진 상세 연결 및 알림 자격증명 UI 동적 생성"""
+        """숨겨진 상세 연결 UI 동적 생성"""
         for widget in self.adv_frame.winfo_children():
             widget.destroy()
 
@@ -533,54 +502,6 @@ class GUIUploaderApp:
         key_lbl.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(3, 0))
         key_ent = tk.Entry(self.adv_frame, textvariable=self.sub_key_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
         key_ent.grid(row=4, column=0, columnspan=2, sticky=tk.EW, ipady=3, pady=(0, 8))
-
-        # 알림 서버 헤더
-        a_title = tk.Label(self.adv_frame, text="🔔 실시간 알림 서버 설정", font=("Segoe UI", 8, "bold"), fg=self.color_cyan, bg=self.color_bg)
-        a_title.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(5, 5))
-
-        type_lbl = tk.Label(self.adv_frame, text="알림 전송 수단 (alert_type)", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
-        type_lbl.grid(row=6, column=0, sticky=tk.W)
-        
-        type_frame = tk.Frame(self.adv_frame, bg=self.color_bg)
-        type_frame.grid(row=7, column=0, sticky=tk.W, padx=(0, 10), pady=(0, 8))
-        
-        rb_tg = tk.Radiobutton(type_frame, text="텔레그램", variable=self.alert_type_var, value="telegram", fg=self.color_text_main, bg=self.color_bg, selectcolor=self.color_card_dark, activebackground=self.color_bg, activeforeground=self.color_text_main)
-        rb_tg.pack(side=tk.LEFT, padx=(0, 10))
-        rb_em = tk.Radiobutton(type_frame, text="이메일", variable=self.alert_type_var, value="email", fg=self.color_text_main, bg=self.color_bg, selectcolor=self.color_card_dark, activebackground=self.color_bg, activeforeground=self.color_text_main)
-        rb_em.pack(side=tk.LEFT)
-
-        tg_lbl = tk.Label(self.adv_frame, text="텔레그램 봇 토큰 (telegram_bot_token)", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
-        tg_lbl.grid(row=6, column=1, sticky=tk.W)
-        tg_ent = tk.Entry(self.adv_frame, textvariable=self.tg_token_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        tg_ent.grid(row=7, column=1, sticky=tk.EW, ipady=3, pady=(0, 8))
-
-        # SMTP Host & Port
-        smtp_lbl = tk.Label(self.adv_frame, text="SMTP 서버 주소 / 포트", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
-        smtp_lbl.grid(row=8, column=0, sticky=tk.W)
-        
-        smtp_box = tk.Frame(self.adv_frame, bg=self.color_bg)
-        smtp_box.grid(row=9, column=0, sticky=tk.EW, padx=(0, 10), pady=(0, 5))
-        smtp_box.columnconfigure(0, weight=3)
-        smtp_box.columnconfigure(1, weight=1)
-        
-        smtp_srv = tk.Entry(smtp_box, textvariable=self.smtp_server_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        smtp_srv.grid(row=0, column=0, sticky=tk.EW, padx=(0, 5), ipady=3)
-        smtp_prt = tk.Entry(smtp_box, textvariable=self.smtp_port_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        smtp_prt.grid(row=0, column=1, sticky=tk.EW, ipady=3)
-
-        tls_chk = tk.Checkbutton(self.adv_frame, text="TLS 사용", variable=self.smtp_tls_var, fg=self.color_text_main, bg=self.color_bg, selectcolor=self.color_card_dark, activebackground=self.color_bg, activeforeground=self.color_text_main)
-        tls_chk.grid(row=9, column=1, sticky=tk.W, pady=(0, 5))
-
-        # SMTP User & Password
-        user_lbl = tk.Label(self.adv_frame, text="SMTP 계정명", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
-        user_lbl.grid(row=10, column=0, sticky=tk.W)
-        user_ent = tk.Entry(self.adv_frame, textvariable=self.smtp_user_var, font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        user_ent.grid(row=11, column=0, sticky=tk.EW, padx=(0, 10), ipady=3)
-
-        pw_lbl = tk.Label(self.adv_frame, text="SMTP 비밀번호", font=("Segoe UI", 8), fg=self.color_text_muted, bg=self.color_bg)
-        pw_lbl.grid(row=10, column=1, sticky=tk.W)
-        pw_ent = tk.Entry(self.adv_frame, textvariable=self.smtp_pw_var, show="*", font=("Consolas", 8), bg=self.color_card_dark, fg=self.color_text_main, bd=0, highlightthickness=1, highlightbackground=self.color_border, highlightcolor=self.color_cyan)
-        pw_ent.grid(row=11, column=1, sticky=tk.EW, ipady=3)
 
     def make_supabase_request(self, url, data=None, headers=None, method="GET", timeout=30, max_retries=3):
         """Supabase API 요청을 재시도(Retry) 및 충분한 타임아웃과 함께 수행합니다."""
@@ -651,14 +572,7 @@ class GUIUploaderApp:
                 "is_paused": self.is_paused,
                 "is_mock": self.is_mock,
                 "supabase_url": self.supabase_url,
-                "supabase_key": self.supabase_key,
-                "smtp_server": self.smtp_server,
-                "smtp_port": self.smtp_port,
-                "smtp_user": self.smtp_user,
-                "smtp_password": self.smtp_password,
-                "smtp_use_tls": self.smtp_use_tls,
-                "alert_type": self.alert_type,
-                "telegram_bot_token": self.telegram_bot_token
+                "supabase_key": self.supabase_key
             }
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(config_data, f, indent=4, ensure_ascii=False)
@@ -688,13 +602,6 @@ class GUIUploaderApp:
             supabase_url = self.sub_url_var.get().strip() if hasattr(self, 'sub_url_var') else self.supabase_url
             supabase_table = self.sub_table_var.get().strip() if hasattr(self, 'sub_table_var') else self.supabase_table
             supabase_key = self.sub_key_var.get().strip() if hasattr(self, 'sub_key_var') else self.supabase_key
-            alert_type = self.alert_type_var.get().strip() if hasattr(self, 'alert_type_var') else self.alert_type
-            telegram_bot_token = self.tg_token_var.get().strip() if hasattr(self, 'tg_token_var') else self.telegram_bot_token
-            smtp_server = self.smtp_server_var.get().strip() if hasattr(self, 'smtp_server_var') else self.smtp_server
-            smtp_port = int(self.smtp_port_var.get().strip() or "587") if hasattr(self, 'smtp_port_var') else self.smtp_port
-            smtp_user = self.smtp_user_var.get().strip() if hasattr(self, 'smtp_user_var') else self.smtp_user
-            smtp_password = self.smtp_pw_var.get().strip() if hasattr(self, 'smtp_pw_var') else self.smtp_password
-            smtp_use_tls = self.smtp_tls_var.get() if hasattr(self, 'smtp_tls_var') else self.smtp_use_tls
 
             device_id = self.device_id_var.get().strip()
 
@@ -733,14 +640,7 @@ class GUIUploaderApp:
                 "is_paused": is_paused,
                 "is_mock": self.is_mock,
                 "supabase_url": supabase_url,
-                "supabase_key": supabase_key,
-                "smtp_server": smtp_server,
-                "smtp_port": smtp_port,
-                "smtp_user": smtp_user,
-                "smtp_password": smtp_password,
-                "smtp_use_tls": smtp_use_tls,
-                "alert_type": alert_type,
-                "telegram_bot_token": telegram_bot_token
+                "supabase_key": supabase_key
             }
 
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -753,13 +653,6 @@ class GUIUploaderApp:
             self.supabase_url = supabase_url
             self.supabase_table = supabase_table
             self.supabase_key = supabase_key
-            self.alert_type = alert_type
-            self.telegram_bot_token = telegram_bot_token
-            self.smtp_server = smtp_server
-            self.smtp_port = smtp_port
-            self.smtp_user = smtp_user
-            self.smtp_password = smtp_password
-            self.smtp_use_tls = smtp_use_tls
 
             # Supabase device_config의 site_name 컬럼 비동기 업데이트
             if supabase_url and supabase_key:
@@ -768,18 +661,6 @@ class GUIUploaderApp:
                     args=(self.device_id, site_name, supabase_url, supabase_key),
                     daemon=True
                 ).start()
-
-            # Alert Sender 모듈 재구축
-            self.alert_sender = get_alert_sender(
-                self.alert_type,
-                smtp_server=self.smtp_server,
-                smtp_port=self.smtp_port,
-                smtp_user=self.smtp_user,
-                smtp_password=self.smtp_password,
-                smtp_use_tls=self.smtp_use_tls,
-                telegram_bot_token=self.telegram_bot_token,
-                log_queue=self.msg_queue
-            )
 
             self.check_mock_status()
             self.refresh_destination_label()
@@ -894,13 +775,6 @@ class GUIUploaderApp:
                 self.timer_val_label.configure(
                     text="일시정지 상태"
                 )
-            # 10초마다 Supabase 설정에서 원격 테스트 메일 트리거 감지 (일시정지 시에는 차단)
-            self.check_config_timer += 1
-            if self.check_config_timer >= 10:
-                self.check_config_timer = 0
-                if self.supabase_url and self.supabase_key and not self.is_mock and not self.is_paused:
-                    threading.Thread(target=self.bg_check_test_alert_trigger, daemon=True).start()
-
             self.root.after(1000, tick)
         
         tick()

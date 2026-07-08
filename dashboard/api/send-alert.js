@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || '<TELEGRAM_BOT_TOKEN>';
+  const botToken = process.env.TELEGRAM_BOT_TOKEN || '';
 
   if (!supabaseUrl || !supabaseKey || !botToken) {
     console.error('Serverless Config Error: Missing env variables.');

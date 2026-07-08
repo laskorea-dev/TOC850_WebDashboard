@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Slider from 'rc-slider';
-import LegacyApp from './LegacyApp';
 import 'rc-slider/assets/index.css';
 import {
   XAxis,
@@ -470,7 +469,7 @@ function App() {
 
   // 텔레그램 API 직접 발송 함수 (Vercel/브라우저 직접 발송)
   const sendTelegramAlert = useCallback(async (chatIds, text) => {
-    const botToken = telegramBotToken.trim() || siteConfig.toc_alert_high?.telegram_bot_token || '<TELEGRAM_BOT_TOKEN>';
+    const botToken = telegramBotToken.trim() || siteConfig.toc_alert_high?.telegram_bot_token || import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '';
     const idArray = chatIds.split(',').map(id => id.trim()).filter(Boolean);
     
     if (idArray.length === 0) {
