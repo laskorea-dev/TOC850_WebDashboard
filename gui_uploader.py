@@ -1224,6 +1224,14 @@ class GUIUploaderApp:
                 toc_alert_high = alert_json
                 alert_emails = alert_json.get("alert_emails", "")
                 telegram_chat_ids = alert_json.get("telegram_chat_ids", "")
+                
+                # 신형 receivers JSON 배열 데이터 동기 연계
+                receivers = alert_json.get("receivers", [])
+                if isinstance(receivers, list):
+                    tg_ids = [str(r.get("value")) for r in receivers if isinstance(r, dict) and r.get("type") == "telegram" and r.get("value")]
+                    if tg_ids:
+                        telegram_chat_ids = ",".join(tg_ids)
+                
                 # 동적 변경된 텔레그램 봇 토큰 동기화
                 db_tg_token = alert_json.get("telegram_bot_token", "")
                 if db_tg_token:
