@@ -208,7 +208,6 @@ function App() {
   // Y축 수동 줌
   const [yMin, setYMin] = useState('');
   const [yMax, setYMax] = useState('');
-  const [secondaryYChannel, setSecondaryYChannel] = useState('');
 
   // 테이블 필터
   const [tableChannelFilter, setTableChannelFilter] = useState('All');
@@ -1573,7 +1572,7 @@ function App() {
               gap: '12px'
             }}>
               {uniqueChannels.map(ch => {
-                const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
+                const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning', yaxis: 'left' };
                 return (
                   <div key={ch.id} style={{
                     background: 'rgba(255,255,255,0.02)',
@@ -1635,6 +1634,24 @@ function App() {
                         >
                           <option value="caution">주의 이상</option>
                           <option value="warning">경고 이상</option>
+                        </select>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>축 설정:</span>
+                        <select
+                          className="custom-select"
+                          style={{ width: '80px', padding: '3px 4px', fontSize: '0.78rem' }}
+                          value={alertLimits.yaxis || 'left'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setLocalAlerts(prev => ({
+                              ...prev,
+                              [ch.id]: { ...prev[ch.id], yaxis: val }
+                            }));
+                          }}
+                        >
+                          <option value="left">기본축</option>
+                          <option value="right">보조축</option>
                         </select>
                       </div>
                     </div>
@@ -1986,21 +2003,6 @@ function App() {
                   <option value="custom">직접 지정</option>
                 </select>
 
-                {/* 보조축 (오른쪽 Y축) 채널 선택기 */}
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                  <span style={{ fontSize: '0.78rem' }}>보조축:</span>
-                  <select
-                    className="custom-select"
-                    style={{ padding: '6px 12px', fontSize: '0.82rem' }}
-                    value={secondaryYChannel}
-                    onChange={(e) => setSecondaryYChannel(e.target.value)}
-                  >
-                    <option value="">없음</option>
-                    {trendChannels.map(ch => (
-                      <option key={ch} value={ch}>{ch}</option>
-                    ))}
-                  </select>
-                </div>
               </div>
             </div>
 
@@ -2542,7 +2544,7 @@ function App() {
                   {/* 채널별 임계치 설정 (Grid Card Layout) */}
                   <div style={{ marginBottom: '20px' }}>
                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '10px' }}>
-                      📊 채널별 경보 임계값 설정
+                      📊 채널 설정
                     </label>
                     <div style={{
                       display: 'grid',
@@ -2550,7 +2552,7 @@ function App() {
                       gap: '12px'
                     }}>
                       {uniqueChannels.map(ch => {
-                        const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning' };
+                        const alertLimits = localAlerts[ch.id] || { caution: 4500, warning: 6000, alert_level: 'warning', yaxis: 'left' };
                         return (
                           <div key={ch.id} style={{
                             background: 'rgba(255,255,255,0.02)',
@@ -2612,6 +2614,24 @@ function App() {
                                 >
                                   <option value="caution">주의 이상</option>
                                   <option value="warning">경고 이상</option>
+                                </select>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>축 설정:</span>
+                                <select
+                                  className="custom-select"
+                                  style={{ width: '90px', padding: '3px 4px', fontSize: '0.78rem' }}
+                                  value={alertLimits.yaxis || 'left'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setLocalAlerts(prev => ({
+                                      ...prev,
+                                      [ch.id]: { ...prev[ch.id], yaxis: val }
+                                    }));
+                                  }}
+                                >
+                                  <option value="left">기본축</option>
+                                  <option value="right">보조축</option>
                                 </select>
                               </div>
                             </div>
