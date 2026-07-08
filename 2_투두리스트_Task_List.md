@@ -163,6 +163,7 @@
 * [x] **로컬 파이썬 Uploader(`gui_uploader.py`) 내에 임시로 추가되었던 10초 주기 텔레그램 getUpdates 폴링 백그라운드 스레드 및 메소드 일체 삭제 및 원복(경량화 유지)**
 * [x] **일반 공개 알림 수신 등록 모달 하단의 텔레그램 Chat ID 확인 가이드 3단계 설명 문구 수정 (User info 및 라스코리아 알람 봇 검색 방법 연계)**
 * [x] **텔레그램 알림 봇으로 `/start` 메시지 전송 시 환영 메시지 및 자가등록 방법(`/등록`) 자동 안내 메시지 회신 로직 Vercel Serverless Webhook에 구현 완료**
+* [x] **계측기 GUI Uploader 경보 판단 함수(check_and_send_alerts)에서 새로운 텔레그램 receivers JSON 배열을 감지하여 telegram_chat_ids와 동적 연계하여 경보가 100% 누락 없이 전송되도록 정합성 핫픽스 완료**
 
 
 
