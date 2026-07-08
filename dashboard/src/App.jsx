@@ -399,7 +399,7 @@ function App() {
       }
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
       const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
       const endpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/${targetTable}`
@@ -789,7 +789,7 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
       const queryDeviceId = deviceIdParam || siteConfig.site_id || siteSearchTerm;
       const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : queryDeviceId;
       const endpoint = baseUrl.includes('/rest/v1')
@@ -866,7 +866,7 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
       const queryDeviceId = deviceIdParam || siteConfig.site_id || siteSearchTerm;
       const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : queryDeviceId;
       const deleteFilter = useSingleTable
@@ -1268,7 +1268,7 @@ function App() {
       }
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true;
+      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
       const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
       const endpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/${targetTable}`
