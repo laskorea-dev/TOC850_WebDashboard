@@ -894,13 +894,13 @@ class GUIUploaderApp:
                 self.timer_val_label.configure(
                     text="일시정지 상태"
                 )
-            
-            # 10초마다 Supabase 설정에서 원격 테스트 메일 트리거 감지 (일시정지 시에는 차단)
+            # 10초마다 Supabase 설정에서 원격 테스트 메일 트리거 감지 및 텔레그램 봇 자동등록 체크 (일시정지 시에는 차단)
             self.check_config_timer += 1
             if self.check_config_timer >= 10:
                 self.check_config_timer = 0
                 if self.supabase_url and self.supabase_key and not self.is_mock and not self.is_paused:
                     threading.Thread(target=self.bg_check_test_alert_trigger, daemon=True).start()
+                    threading.Thread(target=self.bg_check_telegram_bot_updates, daemon=True).start()
 
             self.root.after(1000, tick)
         
@@ -1523,6 +1523,155 @@ class GUIUploaderApp:
             self.startup_sync_pending = False
             self.log_to_viewer("[자동 최소화] 초기 동기화 확인 완료. 프로그램을 최소화합니다.")
             self.root.after(2000, self.root.iconify)
+
+    def bg_check_telegram_bot_updates(self):
+        """10초마다 텔레그램 봇 /등록 메시지를 검증하여 Supabase DB에 수신자 추가"""
+        if not self.telegram_bot_token:
+            return
+        
+        last_update_id = 0
+        config_path = "uploader_config.json"
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    last_update_id = cfg.get("telegram_last_update_id", 0)
+        except Exception:
+            pass
+
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/getUpdates?offset={last_update_id + 1}&timeout=5"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            
+            if not data.get("ok"):
+                return
+            
+            updates = data.get("result", [])
+            new_last_update_id = last_update_id
+            
+            for update in updates:
+                update_id = update.get("update_id")
+                if update_id > new_last_update_id:
+                    new_last_update_id = update_id
+                
+                message = update.get("message")
+                if not message:
+                    continue
+                
+                chat = message.get("chat", {})
+                chat_id = chat.get("id")
+                text = message.get("text", "").strip()
+                if not text or not chat_id:
+                    continue
+                
+                if text.startswith("/등록") or text.startswith("/reg"):
+                    tokens = text.split()
+                    if len(tokens) < 4:
+                        self.send_telegram_bot_reply(
+                            chat_id, 
+                            "⚠️ <b>사용법 오류</b>\n\n올바른 등록 포맷으로 메시지를 전송해 주세요.\n\n양식:\n<code>/등록 [디바이스ID] [사용자명] [패스코드]</code>\n예: <code>/등록 toc-260706-02 홍길동 850</code>"
+                        )
+                        continue
+                    
+                    device_id = tokens[1].strip()
+                    username = tokens[2].strip()
+                    input_passcode = tokens[3].strip()
+                    
+                    try:
+                        base_url = self.supabase_url.rstrip('/')
+                        headers = {
+                            "apikey": self.supabase_key,
+                            "Authorization": f"Bearer {self.supabase_key}",
+                            "Content-Type": "application/json"
+                        }
+                        query_url = f"{base_url}/device_config?device_id=eq.{urllib.parse.quote(device_id)}"
+                        query_req = urllib.request.Request(query_url, headers=headers)
+                        with urllib.request.urlopen(query_req, timeout=10) as res_raw:
+                            device_list = json.loads(res_raw.read().decode("utf-8"))
+                        
+                        if not device_list:
+                            self.send_telegram_bot_reply(chat_id, f"❌ <b>등록 실패</b>\n\n존재하지 않는 디바이스 ID입니다: <code>{device_id}</code>")
+                            continue
+                        
+                        device_conf = device_list[0]
+                        db_passcode = str(device_conf.get("passcode", "")).strip()
+                        
+                        if input_passcode != db_passcode:
+                            self.send_telegram_bot_reply(chat_id, "❌ <b>등록 실패</b>\n\n보안 패스코드가 일치하지 않습니다.")
+                            continue
+                        
+                        toc_alert_high = device_conf.get("toc_alert_high") or {}
+                        if not isinstance(toc_alert_high, dict):
+                            toc_alert_high = {}
+                        
+                        receivers = toc_alert_high.get("receivers")
+                        if not isinstance(receivers, list):
+                            receivers = []
+                        
+                        exists = False
+                        for r in receivers:
+                            if str(r.get("value")) == str(chat_id):
+                                exists = True
+                                break
+                        
+                        if exists:
+                            self.send_telegram_bot_reply(chat_id, f"ℹ️ <b>안내</b>\n\n이미 해당 디바이스({device_id})의 수신자로 등록되어 있습니다.")
+                            continue
+                        
+                        receivers.append({
+                            "name": username,
+                            "type": "telegram",
+                            "value": str(chat_id)
+                        })
+                        toc_alert_high["receivers"] = receivers
+                        
+                        update_url = f"{base_url}/device_config?device_id=eq.{urllib.parse.quote(device_id)}"
+                        update_payload = json.dumps({"toc_alert_high": toc_alert_high}).encode("utf-8")
+                        update_req = urllib.request.Request(update_url, data=update_payload, headers=headers, method="PATCH")
+                        with urllib.request.urlopen(update_req, timeout=10) as patch_res:
+                            pass
+                        
+                        self.send_telegram_bot_reply(
+                            chat_id, 
+                            f"🎉 <b>TOC 경보 알림 수신 등록 완료</b>\n\n안녕하세요, <b>{username}</b>님!\n디바이스 <b>{device_id}</b>의 실시간 알림 수신처로 정상 등록되었습니다.\n\n앞으로 경보 발생 시 본 대화방으로 알림이 전송됩니다."
+                        )
+                    except Exception as ex:
+                        self.log_to_viewer(f"[텔레그램등록] 처리 중 오류 발생: {ex}")
+                        self.send_telegram_bot_reply(chat_id, "❌ <b>등록 실패</b>\n\n서버 통신 오류가 발생했습니다.")
+            
+            if new_last_update_id > last_update_id:
+                try:
+                    if os.path.exists(config_path):
+                        with open(config_path, "r", encoding="utf-8") as f:
+                            cfg = json.load(f)
+                        cfg["telegram_last_update_id"] = new_last_update_id
+                        with open(config_path, "w", encoding="utf-8") as f:
+                            json.dump(cfg, f, indent=4, ensure_ascii=False)
+                except Exception:
+                    pass
+        except Exception as e:
+            pass
+
+    def send_telegram_bot_reply(self, chat_id, text):
+        """텔레그램 답장 발송용 urllib 헬퍼"""
+        try:
+            url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+            payload = json.dumps({
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML"
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                url, 
+                data=payload, 
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                pass
+        except Exception:
+            pass
 
 def main():
     root = tk.Tk()
