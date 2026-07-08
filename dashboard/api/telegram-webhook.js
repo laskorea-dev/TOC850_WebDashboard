@@ -59,7 +59,10 @@ export default async function handler(req, res) {
     const inputPasscode = tokens[3].trim();
 
     try {
-      const cleanUrl = supabaseUrl.replace(/\/+$/, '');
+      let cleanUrl = supabaseUrl.replace(/\/+$/, '');
+      if (cleanUrl.includes('/rest/v1')) {
+        cleanUrl = cleanUrl.replace(/\/rest\/v1$/, '');
+      }
       const queryUrl = `${cleanUrl}/rest/v1/device_config?device_id=eq.${encodeURIComponent(deviceId)}`;
       
       const response = await fetch(queryUrl, {
