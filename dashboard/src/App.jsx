@@ -2484,7 +2484,7 @@ function App() {
                   {/* 지점명(한글명) 입력 필드 */}
                   <div style={{ marginBottom: '20px' }}>
                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                      🏢 지점 한글명 설정
+                      🏢 지점 이름 설정
                     </label>
                     <input
                       type="text"
@@ -2598,6 +2598,16 @@ function App() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                       <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', margin: 0 }}>
                         👥 등록된 알림 수신자 목록
+                        {(() => {
+                          const latest = (data && data.length > 0)
+                            ? (data[data.length - 1].Device_ID || data[data.length - 1].device_id || '')
+                            : '';
+                          return latest ? (
+                            <span style={{ marginLeft: '10px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 'normal' }}>
+                              {latest}
+                            </span>
+                          ) : null;
+                        })()}
                       </label>
                       <button
                         className="sim-btn"
@@ -2703,7 +2713,7 @@ function App() {
 
                   <div>
                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '6px' }}>
-                      수신자 이름 (부서 및 직급 포함 권장)
+                      수신자 이름
                     </label>
                     <input
                       type="text"
