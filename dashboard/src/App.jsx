@@ -2121,23 +2121,18 @@ function App() {
                       domain={yDomain}
                       allowDataOverflow={true}
                     />
-                    {(() => {
-                      const hasSecondaryY = Object.keys(siteConfig.toc_alert_high || {}).some(key => {
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      stroke="var(--accent-cyan)"
+                      fontSize={11}
+                      domain={['auto', 'auto']}
+                      allowDataOverflow={true}
+                      hide={!Object.keys(siteConfig.toc_alert_high || {}).some(key => {
                         const chConf = siteConfig.toc_alert_high[key];
                         return chConf && typeof chConf === 'object' && chConf !== null && chConf.yaxis === 'right';
-                      });
-                      return (
-                        <YAxis
-                          yAxisId="right"
-                          orientation="right"
-                          stroke="var(--accent-cyan)"
-                          fontSize={11}
-                          domain={['auto', 'auto']}
-                          allowDataOverflow={true}
-                          hide={!hasSecondaryY}
-                        />
-                      );
-                    })()}
+                      })}
+                    />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: 'var(--bg-tertiary)',
@@ -2147,7 +2142,8 @@ function App() {
                       }}
                     />
                     {trendChannels.map(chName => {
-                      const chId = chName.replace(/[^0-9]/g, '');
+                      const match = chName.match(/^Ch\s*(\d+)/i);
+                      const chId = match ? match[1] : chName.replace(/[^0-9]/g, '');
                       const chConfig = (siteConfig.toc_alert_high?.[chId] && siteConfig.toc_alert_high[chId] !== null)
                         ? siteConfig.toc_alert_high[chId]
                         : {};
