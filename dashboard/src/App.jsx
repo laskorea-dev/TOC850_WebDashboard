@@ -208,6 +208,7 @@ function App() {
   // Y축 수동 줌
   const [yMin, setYMin] = useState('');
   const [yMax, setYMax] = useState('');
+  const [secondaryYChannel, setSecondaryYChannel] = useState('');
 
   // 테이블 필터
   const [tableChannelFilter, setTableChannelFilter] = useState('All');
@@ -1984,6 +1985,22 @@ function App() {
                   <option value="All">전체 기간</option>
                   <option value="custom">직접 지정</option>
                 </select>
+
+                {/* 보조축 (오른쪽 Y축) 채널 선택기 */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '0.78rem' }}>보조축:</span>
+                  <select
+                    className="custom-select"
+                    style={{ padding: '6px 12px', fontSize: '0.82rem' }}
+                    value={secondaryYChannel}
+                    onChange={(e) => setSecondaryYChannel(e.target.value)}
+                  >
+                    <option value="">없음</option>
+                    {trendChannels.map(ch => (
+                      <option key={ch} value={ch}>{ch}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -2094,11 +2111,22 @@ function App() {
                       tickCount={8}
                     />
                     <YAxis
+                      yAxisId="left"
                       stroke="var(--text-muted)"
                       fontSize={11}
                       domain={yDomain}
                       allowDataOverflow={true}
                     />
+                    {secondaryYChannel && (
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        stroke="var(--accent-cyan)"
+                        fontSize={11}
+                        domain={['auto', 'auto']}
+                        allowDataOverflow={true}
+                      />
+                    )}
                     <Tooltip
                       contentStyle={{
                         backgroundColor: 'var(--bg-tertiary)',
@@ -2110,6 +2138,7 @@ function App() {
                     {trendChannels.map(chName => (
                       <Line
                         key={chName}
+                        yAxisId={chName === secondaryYChannel ? 'right' : 'left'}
                         type="monotone"
                         dataKey={chName}
                         name={chName}
