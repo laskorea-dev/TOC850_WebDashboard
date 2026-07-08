@@ -2117,16 +2117,15 @@ function App() {
                       domain={yDomain}
                       allowDataOverflow={true}
                     />
-                    {secondaryYChannel && (
-                      <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        stroke="var(--accent-cyan)"
-                        fontSize={11}
-                        domain={['auto', 'auto']}
-                        allowDataOverflow={true}
-                      />
-                    )}
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      stroke="var(--accent-cyan)"
+                      fontSize={11}
+                      domain={['auto', 'auto']}
+                      allowDataOverflow={true}
+                      hide={!secondaryYChannel}
+                    />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: 'var(--bg-tertiary)',
