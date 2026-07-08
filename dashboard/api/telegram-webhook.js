@@ -54,7 +54,7 @@ export default async function handler(req, res) {
       `양식:\n` +
       `<code>/등록 [디바이스ID] [사용자명] [패스코드]</code>\n\n` +
       `예시:\n` +
-      `<code>/등록 toc-260706-02 홍길동 850</code>\n\n` +
+      `<code>/등록 TOC-260101-00 홍길동 000</code>\n\n` +
       `<i>※ 디바이스 ID와 패스코드는 웹 대시보드 관리자 페이지에서 확인하실 수 있습니다.</i>`
     );
     return res.status(200).json({ ok: true });
@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     const tokens = text.split(/\s+/);
     if (tokens.length < 4) {
       await sendReply(
-        "⚠️ <b>사용법 오류</b>\n\n올바른 등록 포맷으로 메시지를 전송해 주세요.\n\n양식:\n<code>/등록 [디바이스ID] [사용자명] [패스코드]</code>\n예: <code>/등록 toc-260706-02 홍길동 850</code>"
+        "⚠️ <b>사용법 오류</b>\n\n올바른 등록 포맷으로 메시지를 전송해 주세요.\n\n양식:\n<code>/등록 [디바이스ID] [사용자명] [패스코드]</code>\n예: <code>/등록 TOC-260101-00 홍길동 000</code>"
       );
       return res.status(200).json({ ok: true });
     }
