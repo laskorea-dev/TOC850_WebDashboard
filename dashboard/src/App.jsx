@@ -399,8 +399,7 @@ function App() {
       }
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
-      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
+      const targetTable = SUPABASE_MEASUREMENT_TABLE;
       const endpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/${targetTable}`
         : `${baseUrl}/rest/v1/${targetTable}`;
@@ -409,11 +408,9 @@ function App() {
       const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
       
       // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
-      const singleTableFilter = useSingleTable
-        ? (deviceIdParam 
-            ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}` 
-            : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
-        : '';
+      const singleTableFilter = deviceIdParam 
+        ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}` 
+        : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`;
 
       let allData = [];
       let from = 0;
@@ -789,9 +786,7 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
-      const queryDeviceId = deviceIdParam || siteConfig.site_id || siteSearchTerm;
-      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : queryDeviceId;
+      const targetTable = SUPABASE_MEASUREMENT_TABLE;
       const endpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/${targetTable}`
         : `${baseUrl}/rest/v1/${targetTable}`;
@@ -821,12 +816,8 @@ function App() {
         Add_note: "[MOCK TEST DATA]"
       };
 
-      if (useSingleTable) {
-        payload.Site_ID = resolvedSiteId;
-        payload.Device_ID = resolvedDeviceId;
-      } else {
-        payload.Device_ID = queryDeviceId;
-      }
+      payload.Site_ID = resolvedSiteId;
+      payload.Device_ID = resolvedDeviceId;
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -866,14 +857,10 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
-      const queryDeviceId = deviceIdParam || siteConfig.site_id || siteSearchTerm;
-      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : queryDeviceId;
-      const deleteFilter = useSingleTable
-        ? (deviceIdParam 
-            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
-            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
-        : "";
+      const targetTable = SUPABASE_MEASUREMENT_TABLE;
+      const deleteFilter = deviceIdParam 
+        ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
+        : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`;
       
       const endpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/${targetTable}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D${deleteFilter}`
@@ -1268,8 +1255,7 @@ function App() {
       }
 
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const useSingleTable = siteConfig.toc_alert_high?.use_single_table === true || siteConfig.use_single_table === true;
-      const targetTable = useSingleTable ? SUPABASE_MEASUREMENT_TABLE : (siteConfig.site_id || siteSearchTerm);
+      const targetTable = SUPABASE_MEASUREMENT_TABLE;
       const endpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/${targetTable}`
         : `${baseUrl}/rest/v1/${targetTable}`;
@@ -1278,11 +1264,9 @@ function App() {
       const filterParams = getDateFilterParams(csvRangeType, csvCustomStart, csvCustomEnd);
       
       // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
-      const singleTableFilter = useSingleTable
-        ? (deviceIdParam 
-            ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
-            : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`)
-        : '';
+      const singleTableFilter = deviceIdParam 
+        ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
+        : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`;
 
       let allData = [];
       let from = 0;
@@ -1880,7 +1864,7 @@ function App() {
                         outline: isMock ? '1px dashed rgba(239, 68, 68, 0.4)' : 'none'
                       }}
                     >
-                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{item.Date_Time}</td>
+                      <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{item.Date_Time ? item.Date_Time.replace('T', ' ') : ''}</td>
                       <td style={{ padding: '12px 16px' }}><code>{item.Device_ID}</code></td>
                       <td style={{ padding: '12px 16px', fontWeight: 600 }}>{item.Channel_Name} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>(Ch {item.Channel})</span></td>
                       <td style={{ 
@@ -2336,7 +2320,7 @@ function App() {
 
                       return (
                         <tr key={index} className={rowClass}>
-                          <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time}</td>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.Date_Time ? row.Date_Time.replace('T', ' ') : ''}</td>
                           <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{row.Channel_Name}</td>
                           <td style={{ fontWeight: 600, color: textColor, whiteSpace: 'nowrap' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
