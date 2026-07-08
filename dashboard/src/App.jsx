@@ -2730,9 +2730,9 @@ function App() {
                     <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '8px', padding: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '6px', lineHeight: '1.5' }}>
                       <strong>💡 텔레그램 Chat ID 확인 방법:</strong>
                       <ol style={{ margin: '4px 0 0 0', paddingLeft: '16px' }}>
-                        <li>텔레그램에 <strong>@laskorea_Alert_bot</strong> 검색 후 <strong>[시작]</strong> 또는 <strong>/start</strong>를 입력하여 봇을 활성화합니다.</li>
-                        <li>자신의 숫자 ID를 확인하기 위해 텔레그램에 <strong>@userinfobot</strong> 검색 후 대화방에 입장합니다.</li>
-                        <li><strong>[시작]</strong>을 누르면 나오는 9~10자리 숫자 ID를 복사하여 위 입력창에 입력합니다.</li>
+                        <li>텔레그램에 <strong>'User info'</strong> 검색 후 <strong>'/start'</strong>를 입력하여 봇을 활성화 후 ID를 확인합니다.</li>
+                        <li>라스코리아 알람 봇 검색 후 <strong>'/start'</strong>를 입력합니다.</li>
+                        <li>1번에서 확인한 9~10자리 숫자 ID를 복사하여 위 입력창에 입력합니다.</li>
                       </ol>
                     </div>
                   </div>

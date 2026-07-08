@@ -44,6 +44,22 @@ export default async function handler(req, res) {
     }
   };
 
+  // "/start" 명령어 검출 (환영 메시지 및 등록 가이드 발송)
+  if (text.startsWith('/start')) {
+    await sendReply(
+      `👋 <b>안녕하세요! 라스코리아 TOC 실시간 알림 봇입니다.</b>\n\n` +
+      `본 봇은 현장 계측기의 측정값(TOC)이 설정된 임계치를 초과할 경우 실시간으로 알림 메시지를 받아볼 수 있는 연동 시스템입니다.\n\n` +
+      `⚙️ <b>알림 수신인 자동 등록 방법:</b>\n` +
+      `아래 양식에 맞춰 이 대화방에 메시지를 전송해 주시면 데이터베이스에 수신처가 안전하게 자가등록됩니다.\n\n` +
+      `양식:\n` +
+      `<code>/등록 [디바이스ID] [사용자명] [패스코드]</code>\n\n` +
+      `예시:\n` +
+      `<code>/등록 toc-260706-02 홍길동 850</code>\n\n` +
+      `<i>※ 디바이스 ID와 패스코드는 웹 대시보드 관리자 페이지에서 확인하실 수 있습니다.</i>`
+    );
+    return res.status(200).json({ ok: true });
+  }
+
   // "/등록" 또는 "/reg" 명령어 검출
   if (text.startsWith('/등록') || text.startsWith('/reg')) {
     const tokens = text.split(/\s+/);
