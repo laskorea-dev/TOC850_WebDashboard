@@ -1709,7 +1709,8 @@ function App() {
                   ...localAlerts,
                   alert_emails: alertEmails,
                   telegram_chat_ids: telegramChatIds,
-                  telegram_bot_token: telegramBotToken // 봇 토큰 추가
+                  telegram_bot_token: telegramBotToken, // 봇 토큰 추가
+                  receivers: siteConfig.toc_alert_high?.receivers || [] // 수신자 목록 보존
                 };
  
                 await saveSiteConfig(updatedConfig);
@@ -1798,7 +1799,8 @@ function App() {
                       alert_emails: alertEmails,
                       telegram_chat_ids: telegramChatIds,
                       device_ids: deviceIds,
-                      trigger_test_email: true
+                      trigger_test_email: true,
+                      receivers: siteConfig.toc_alert_high?.receivers || [] // 수신자 목록 보존
                     };
                     const success = await saveSiteConfig(updatedConfig);
                     if (success) {
@@ -2754,7 +2756,8 @@ function App() {
                       ...localAlerts,
                       alert_emails: alertEmails,
                       telegram_chat_ids: telegramChatIds,
-                      telegram_bot_token: telegramBotToken // 봇 토큰 추가
+                      telegram_bot_token: telegramBotToken, // 봇 토큰 추가
+                      receivers: siteConfig.toc_alert_high?.receivers || [] // 수신자 목록 보존
                     };
 
                     const success = await saveSiteConfig(updatedConfig);
