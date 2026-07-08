@@ -52,7 +52,7 @@ const normalizeData = (items) => {
     // DB Channel_Name 우선 사용, 깨진 문자(Լ 등)일 때만 폴백
     let resolvedChannelName = item.Channel_Name;
     if (!resolvedChannelName || resolvedChannelName === '' || resolvedChannelName.includes('Լ')) {
-      const fallbackMap = { 1: '방류수', 2: '유입수', 3: '고농도', 4: '냉각수' };
+      const fallbackMap = { 1: '유입수', 2: '고농도', 3: '방류수', 4: '냉각수' };
       resolvedChannelName = fallbackMap[channelNum] || `채널 ${channelNum}`;
     }
 
@@ -2143,9 +2143,9 @@ function App() {
                     />
                     {trendChannels.map(chName => {
                       const getChannelIdByName = (name) => {
-                        if (name.includes('방류수')) return '1';
-                        if (name.includes('유입수')) return '2';
-                        if (name.includes('고농도')) return '3';
+                        if (name.includes('유입수')) return '1';
+                        if (name.includes('고농도')) return '2';
+                        if (name.includes('방류수')) return '3';
                         if (name.includes('냉각수')) return '4';
                         const m = name.match(/\d+/);
                         return m ? m[0] : '';
