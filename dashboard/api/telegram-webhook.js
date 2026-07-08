@@ -52,10 +52,11 @@ export default async function handler(req, res) {
       `⚙️ <b>알림 수신인 자동 등록 방법:</b>\n` +
       `아래 양식에 맞춰 이 대화방에 메시지를 전송해 주시면 데이터베이스에 수신처가 안전하게 자가등록됩니다.\n\n` +
       `양식:\n` +
-      `<code>/등록 [디바이스ID] [사용자명] [패스코드]</code>\n\n` +
+      `<code>/등록 [디바이스ID 또는 사이트ID] [사용자명] [패스코드]</code>\n\n` +
       `예시:\n` +
-      `<code>/등록 TOC-260101-00 홍길동 000</code>\n\n` +
-      `<i>※ 디바이스 ID와 패스코드는 웹 대시보드 관리자 페이지에서 확인하실 수 있습니다.</i>`
+      `<code>/등록 Samyang_Incheon 홍길동 850</code>\n` +
+      `<code>/등록 TMSTOC-241224 홍길동 850</code>\n\n` +
+      `<i>※ 디바이스 ID, 사이트 ID 및 패스코드는 웹 대시보드에서 확인하실 수 있습니다.</i>`
     );
     return res.status(200).json({ ok: true });
   }
@@ -65,12 +66,12 @@ export default async function handler(req, res) {
     const tokens = text.split(/\s+/);
     if (tokens.length < 4) {
       await sendReply(
-        "⚠️ <b>사용법 오류</b>\n\n올바른 등록 포맷으로 메시지를 전송해 주세요.\n\n양식:\n<code>/등록 [디바이스ID] [사용자명] [패스코드]</code>\n예: <code>/등록 TOC-260101-00 홍길동 000</code>"
+        "⚠️ <b>사용법 오류</b>\n\n올바른 등록 포맷으로 메시지를 전송해 주세요.\n\n양식:\n<code>/등록 [디바이스ID 또는 사이트ID] [사용자명] [패스코드]</code>\n예: <code>/등록 Samyang_Incheon 홍길동 850</code>"
       );
       return res.status(200).json({ ok: true });
     }
 
-    const deviceId = tokens[1].trim().toUpperCase();
+    const deviceId = tokens[1].trim(); // 기기ID 또는 사이트ID (대소문자 쿼리를 위해 toUpperCase 삭제, eq 연산 사용)
     const username = tokens[2].trim();
     const inputPasscode = tokens[3].trim();
 
@@ -79,7 +80,8 @@ export default async function handler(req, res) {
       if (cleanUrl.includes('/rest/v1')) {
         cleanUrl = cleanUrl.replace(/\/rest\/v1$/, '');
       }
-      const queryUrl = `${cleanUrl}/rest/v1/device_config?device_id=eq.${encodeURIComponent(deviceId)}`;
+      // device_id 또는 site_id 둘 중 하나라도 입력값과 일치하는 행을 조회 (or query)
+      const queryUrl = `${cleanUrl}/rest/v1/device_config?or=(device_id.eq.${encodeURIComponent(deviceId)},site_id.eq.${encodeURIComponent(deviceId)})`;
       
       const response = await fetch(queryUrl, {
         method: 'GET',
@@ -97,7 +99,7 @@ export default async function handler(req, res) {
 
       const deviceList = await response.json();
       if (!deviceList || deviceList.length === 0) {
-        await sendReply(`❌ <b>등록 실패</b>\n\n존재하지 않는 디바이스 ID입니다: <code>{deviceId}</code>`);
+        await sendReply(`❌ <b>등록 실패</b>\n\n존재하지 않는 디바이스 ID 또는 사이트 ID입니다: <code>${deviceId}</code>`);
         return res.status(200).json({ ok: true });
       }
 
@@ -121,7 +123,7 @@ export default async function handler(req, res) {
 
       const exists = receivers.some(r => String(r.value) === String(chat_id));
       if (exists) {
-        await sendReply(`ℹ️ <b>안내</b>\n\n이미 해당 디바이스(${deviceId})의 수신자로 등록되어 있습니다.`);
+        await sendReply(`ℹ️ <b>안내</b>\n\n이미 해당 장치(${deviceConf.site_id || deviceConf.device_id})의 수신자로 등록되어 있습니다.`);
         return res.status(200).json({ ok: true });
       }
 
@@ -132,8 +134,8 @@ export default async function handler(req, res) {
       });
       toc_alert_high.receivers = receivers;
 
-      // PATCH 로 Supabase 업데이트
-      const updateUrl = `${cleanUrl}/rest/v1/device_config?device_id=eq.${encodeURIComponent(deviceId)}`;
+      // 해당 행의 정확한 Primary Key인 deviceConf.device_id를 활용해 PATCH 업데이트 수행
+      const updateUrl = `${cleanUrl}/rest/v1/device_config?device_id=eq.${encodeURIComponent(deviceConf.device_id)}`;
       const updateRes = await fetch(updateUrl, {
         method: 'PATCH',
         headers: {
@@ -147,7 +149,7 @@ export default async function handler(req, res) {
 
       if (updateRes.ok) {
         await sendReply(
-          `🎉 <b>TOC 경보 알림 수신 등록 완료</b>\n\n안녕하세요, <b>${username}</b>님!\n디바이스 <b>${deviceId}</b>의 실시간 알림 수신처로 정상 등록되었습니다.\n\n앞으로 경보 발생 시 본 대화방으로 알림이 전송됩니다.`
+          `🎉 <b>TOC 경보 알림 수신 등록 완료</b>\n\n안녕하세요, <b>${username}</b>님!\n장치 <b>${deviceConf.site_id || deviceConf.device_id}</b>의 실시간 알림 수신처로 정상 등록되었습니다.\n\n앞으로 경보 발생 시 본 대화방으로 알림이 전송됩니다.`
         );
       } else {
         await sendReply("❌ <b>등록 실패</b>\n\n데이터베이스 업데이트에 실패했습니다.");

@@ -2674,9 +2674,12 @@ function App() {
                         {(() => {
                           const latestLog = (data && data.length > 0) ? data[data.length - 1] : null;
                           const latestLogDeviceId = latestLog ? (latestLog.Device_ID || latestLog.device_id || '') : '';
-                          return latestLogDeviceId ? (
+                          const displayDeviceId = (latestLogDeviceId === siteConfig.site_id)
+                            ? (siteConfig.device_id || latestLogDeviceId)
+                            : latestLogDeviceId;
+                          return displayDeviceId ? (
                             <span style={{ marginLeft: '10px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 'normal' }}>
-                              {latestLogDeviceId}
+                              {displayDeviceId}
                             </span>
                           ) : null;
                         })()}
