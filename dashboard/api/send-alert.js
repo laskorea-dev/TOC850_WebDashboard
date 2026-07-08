@@ -121,13 +121,13 @@ export default async function handler(req, res) {
       `🌊 <b>채널명</b>: Ch ${channelId}\n` +
       `🕒 <b>측정시간</b>: ${dateTime}\n` +
       `📉 <b>설정 임계값</b>: ${triggerLimit} ppm\n` +
-      `⚠️ <b>현재 측정값</b>: <font color="red"><b>${tocVal} ppm</b></font>\n\n` +
+      `⚠️ <b>현재 측정값</b>: 🔴 <b>${tocVal} ppm</b>\n\n` +
       `<i>※ 수치 초과 상태이오니 현장 장비 및 대시보드를 확인하시기 바랍니다.</i>`;
 
     let tgSent = false;
     for (const chatId of telegramChatIds) {
       try {
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -136,7 +136,12 @@ export default async function handler(req, res) {
             parse_mode: 'HTML'
           })
         });
-        tgSent = true;
+        if (tgRes.ok) {
+          tgSent = true;
+        } else {
+          const errText = await tgRes.text();
+          console.error(`Telegram API response error for chat_id ${chatId}:`, errText);
+        }
       } catch (e) {
         console.error(`Telegram alert send error for chat_id ${chatId}:`, e);
       }
