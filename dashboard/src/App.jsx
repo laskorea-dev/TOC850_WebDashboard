@@ -2142,8 +2142,15 @@ function App() {
                       }}
                     />
                     {trendChannels.map(chName => {
-                      const match = chName.match(/^Ch\s*(\d+)/i);
-                      const chId = match ? match[1] : chName.replace(/[^0-9]/g, '');
+                      const getChannelIdByName = (name) => {
+                        if (name.includes('방류수')) return '1';
+                        if (name.includes('유입수')) return '2';
+                        if (name.includes('고농도')) return '3';
+                        if (name.includes('냉각수')) return '4';
+                        const m = name.match(/\d+/);
+                        return m ? m[0] : '';
+                      };
+                      const chId = getChannelIdByName(chName);
                       const chConfig = (siteConfig.toc_alert_high?.[chId] && siteConfig.toc_alert_high[chId] !== null)
                         ? siteConfig.toc_alert_high[chId]
                         : {};
