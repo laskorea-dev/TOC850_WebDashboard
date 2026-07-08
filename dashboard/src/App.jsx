@@ -2627,16 +2627,11 @@ function App() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                       <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', margin: 0 }}>
                         👥 등록된 알림 수신자 목록
-                        {(() => {
-                          const latest = (data && data.length > 0)
-                            ? (data[data.length - 1].Device_ID || data[data.length - 1].device_id || '')
-                            : '';
-                          return latest ? (
-                            <span style={{ marginLeft: '10px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 'normal' }}>
-                              {latest}
-                            </span>
-                          ) : null;
-                        })()}
+                        {siteConfig.device_id && (
+                          <span style={{ marginLeft: '10px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 'normal' }}>
+                            {siteConfig.device_id}
+                          </span>
+                        )}
                       </label>
                       <button
                         className="sim-btn"
