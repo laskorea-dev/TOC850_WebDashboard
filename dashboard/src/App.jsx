@@ -1075,6 +1075,17 @@ function App() {
     return result;
   }, [trendFilteredData, selectedAttr]);
 
+  // 채널 이름 -> 채널 번호(ID) 동적 매핑 맵 (하드코딩 사전 방지)
+  const channelNameToIdMap = useMemo(() => {
+    const mapping = {};
+    trendFilteredData.forEach(item => {
+      if (item.Channel_Name && item.Channel) {
+        mapping[item.Channel_Name] = String(item.Channel);
+      }
+    });
+    return mapping;
+  }, [trendFilteredData]);
+
   // 트렌드에 실제 등장하는 채널들
   const trendChannels = useMemo(() => {
     const channels = new Set();
@@ -2142,15 +2153,7 @@ function App() {
                       }}
                     />
                     {trendChannels.map(chName => {
-                      const getChannelIdByName = (name) => {
-                        if (name.includes('유입수')) return '1';
-                        if (name.includes('고농도')) return '2';
-                        if (name.includes('방류수')) return '3';
-                        if (name.includes('냉각수')) return '4';
-                        const m = name.match(/\d+/);
-                        return m ? m[0] : '';
-                      };
-                      const chId = getChannelIdByName(chName);
+                      const chId = channelNameToIdMap[chName] || '';
                       const chConfig = (siteConfig.toc_alert_high?.[chId] && siteConfig.toc_alert_high[chId] !== null)
                         ? siteConfig.toc_alert_high[chId]
                         : {};
