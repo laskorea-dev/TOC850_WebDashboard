@@ -1084,38 +1084,125 @@ function App() {
     return trendChannels.filter(ch => !hiddenChannels.has(ch));
   }, [trendChannels, hiddenChannels]);
 
-  // Y축 자동 계산용 (절대 최소/최대)
-  const { absMin, absMax } = useMemo(() => {
-    if (visibleChannels.length === 0 || chartData.length === 0) return { absMin: 0, absMax: 100 };
-    let min = Infinity;
-    let max = -Infinity;
+  // 각 채널별 축 설정(left/right) 및 경고치(warning) 맵 추출
+  const channelAxisConfigs = useMemo(() => {
+    const configMap = {};
+    trendChannels.forEach(chName => {
+      const chId = channelNameToIdMap[chName] || '';
+      let warning = 6000;
+      let yaxis = 'left';
+
+      if (chId === '3') warning = 50;
+      else if (chId === '2') warning = 1000;
+      else if (chId === '1') warning = 2000;
+
+      if (siteConfig && siteConfig.toc_alert_high) {
+        const configVal = siteConfig.toc_alert_high[chId] || siteConfig.toc_alert_high[String(chId)];
+        if (configVal !== undefined && configVal !== null) {
+          if (typeof configVal === 'object' && !Array.isArray(configVal)) {
+            if (configVal.warning !== undefined) {
+              const p = parseFloat(configVal.warning);
+              if (!isNaN(p)) warning = p;
+            }
+            if (configVal.yaxis) yaxis = configVal.yaxis;
+          } else {
+            const p = parseFloat(configVal);
+            if (!isNaN(p)) warning = p;
+          }
+        }
+      }
+      configMap[chName] = { yaxis, warning };
+    });
+    return configMap;
+  }, [trendChannels, channelNameToIdMap, siteConfig]);
+
+  // 기본축(Left) 및 보조축(Right) 스케일 계산 (기본: 0 ~ 경고치 중 최대값, 플롯 범위 이탈 시 동적 확장)
+  const { leftAutoDomain, rightAutoDomain, absMin, absMax } = useMemo(() => {
+    const leftChannels = visibleChannels.filter(ch => channelAxisConfigs[ch]?.yaxis !== 'right');
+    const rightChannels = visibleChannels.filter(ch => channelAxisConfigs[ch]?.yaxis === 'right');
+
+    // 1. 기본 상한 (경고치 중 최대값) 및 하한 (0)
+    let leftBaseMax = 0;
+    leftChannels.forEach(ch => {
+      const w = channelAxisConfigs[ch]?.warning || 0;
+      if (w > leftBaseMax) leftBaseMax = w;
+    });
+    if (leftBaseMax <= 0) leftBaseMax = 100;
+
+    let rightBaseMax = 0;
+    rightChannels.forEach(ch => {
+      const w = channelAxisConfigs[ch]?.warning || 0;
+      if (w > rightBaseMax) rightBaseMax = w;
+    });
+    if (rightBaseMax <= 0) rightBaseMax = 100;
+
+    // 2. 실제 플롯 범위 데이터 (Min / Max)
+    let leftDataMin = Infinity, leftDataMax = -Infinity;
+    let rightDataMin = Infinity, rightDataMax = -Infinity;
+
     chartData.forEach(slot => {
-      visibleChannels.forEach(ch => {
+      leftChannels.forEach(ch => {
         const val = slot[ch];
-        if (val !== undefined && val !== null) {
-          if (val < min) min = val;
-          if (val > max) max = val;
+        if (val !== undefined && val !== null && !isNaN(val)) {
+          if (val < leftDataMin) leftDataMin = val;
+          if (val > leftDataMax) leftDataMax = val;
+        }
+      });
+      rightChannels.forEach(ch => {
+        const val = slot[ch];
+        if (val !== undefined && val !== null && !isNaN(val)) {
+          if (val < rightDataMin) rightDataMin = val;
+          if (val > rightDataMax) rightDataMax = val;
         }
       });
     });
-    if (min === Infinity) return { absMin: 0, absMax: 100 };
-    const padding = (max - min) * 0.05 || 1;
-    return {
-      absMin: Math.max(0, Math.floor(min - padding)),
-      absMax: Math.ceil(max + padding)
-    };
-  }, [visibleChannels, chartData]);
 
-  // Y축 도메인: 수동 입력값 우선, 없으면 표시 중인 채널 기준 오토스케일
-  const yDomain = useMemo(() => {
-    // 수동 입력값이 있으면 우선
+    // 3. Left Y축 domain 계산 (기본: 0 ~ leftBaseMax)
+    let leftMin = 0;
+    if (leftDataMin < 0) {
+      const pad = (leftDataMax > leftDataMin ? (leftDataMax - leftDataMin) : Math.abs(leftDataMin)) * 0.05 || 1;
+      leftMin = Math.floor(leftDataMin - pad);
+    }
+    let leftMax = leftBaseMax;
+    if (leftDataMax > leftBaseMax) {
+      const pad = (leftDataMax - leftMin) * 0.05 || 1;
+      leftMax = Math.ceil(leftDataMax + pad);
+    }
+
+    // 4. Right Y축 domain 계산 (기본: 0 ~ rightBaseMax)
+    let rightMin = 0;
+    if (rightDataMin < 0) {
+      const pad = (rightDataMax > rightDataMin ? (rightDataMax - rightDataMin) : Math.abs(rightDataMin)) * 0.05 || 1;
+      rightMin = Math.floor(rightDataMin - pad);
+    }
+    let rightMax = rightBaseMax;
+    if (rightDataMax > rightBaseMax) {
+      const pad = (rightDataMax - rightMin) * 0.05 || 1;
+      rightMax = Math.ceil(rightDataMax + pad);
+    }
+
+    return {
+      leftAutoDomain: [leftMin, leftMax],
+      rightAutoDomain: [rightMin, rightMax],
+      absMin: leftMin,
+      absMax: leftMax
+    };
+  }, [visibleChannels, chartData, channelAxisConfigs]);
+
+  // 최종 기본축 Y축 도메인 (수동 입력값 우선)
+  const yDomainLeft = useMemo(() => {
     const manualMin = yMin !== '' ? parseFloat(yMin) : null;
     const manualMax = yMax !== '' ? parseFloat(yMax) : null;
     if (manualMin !== null && manualMax !== null) {
       return [manualMin, manualMax];
     }
-    return [absMin, absMax];
-  }, [absMin, absMax, yMin, yMax]);
+    return leftAutoDomain;
+  }, [leftAutoDomain, yMin, yMax]);
+
+  // 최종 보조축 Y축 도메인
+  const yDomainRight = useMemo(() => {
+    return rightAutoDomain;
+  }, [rightAutoDomain]);
 
   // 범례 클릭 핸들러: 채널 표시/숨김 토글
   const handleLegendClick = useCallback((entry) => {
@@ -2114,7 +2201,7 @@ function App() {
                       yAxisId="left"
                       stroke="var(--text-muted)"
                       fontSize={11}
-                      domain={yDomain}
+                      domain={yDomainLeft}
                       allowDataOverflow={true}
                     />
                     <YAxis
@@ -2122,7 +2209,7 @@ function App() {
                       orientation="right"
                       stroke="var(--accent-cyan)"
                       fontSize={11}
-                      domain={['auto', 'auto']}
+                      domain={yDomainRight}
                       allowDataOverflow={true}
                       hide={!Object.keys(siteConfig.toc_alert_high || {}).some(key => {
                         const chConf = siteConfig.toc_alert_high[key];
