@@ -143,17 +143,33 @@ if getattr(self, 'is_auto_config', False): ...
 
 ---
 
-## 7. 🔴 보안 미해결 항목
+## 7. 보안 현황
 
-`계측기_PC_배포패키지_v5.1/uploader_config.json` 이 git에 커밋되어 원격 저장소에 존재하며, 다음이 평문으로 들어 있습니다.
+### ✅ 완료 — GitHub 노출 자격 증명 제거 (2026-07-27)
 
-- Supabase **service_role** 키 (RLS 전면 우회 · 만료 2036년)
-- SMTP 계정 비밀번호
-- Telegram 봇 토큰
+Supabase service_role 키 · SMTP 비밀번호 · Telegram 봇 토큰이 저장소 여러 파일에 커밋되어 있었습니다
+(배포 패키지 config, `TOC850_Company_Handoff/gui_uploader.py` 하드코딩, 과거 `App.jsx`/`scratch_test.js`,
+회의록, 통합명세서).
 
-또한 동일한 service_role 키가 모든 고객사 계측기 PC에 평문 배포되고 있습니다.
+`git filter-repo --replace-text` 로 **전체 117개 커밋을 재작성**하여 플레이스홀더로 치환하고
+`origin/main`에 force push 했습니다. 원격 히스토리 전수 검사에서 잔여 0건을 확인했습니다.
 
-**필요 조치 (미착수):**
-1. Supabase 대시보드에서 API 키 재발급, SMTP 비밀번호 변경, Telegram 봇 토큰 재발급
-2. 업로더는 anon 키 + `measure_logs_v2` INSERT / `device_config` UPSERT 전용 RLS 정책으로 전환
-3. git 히스토리에서 해당 파일 제거 (`git filter-repo`) 후 force push
+### 🔴 미해결 — 자격 증명 재발급
+
+노출 이력이 있으므로 **해당 키들은 유출된 것으로 간주해야 합니다.**
+force push 후에도 GitHub는 참조되지 않는 객체를 일정 기간 보관하며 직접 SHA URL로 접근될 수 있고,
+기존 clone/fork 사본에도 그대로 남아 있습니다.
+
+1. Supabase API 키 재발급 · SMTP 비밀번호 변경 · Telegram 봇 토큰 재발급
+   (재발급 시 전 현장 `uploader_config.json` 갱신 필요)
+2. 업로더를 anon 키 + `measure_logs_v2` INSERT / `device_config` UPSERT 전용 RLS 정책으로 전환
+
+> 고객사 계측기 PC에 키가 평문 배포되는 것 자체는 운영상 허용된 방침입니다(2026-07-27 결정).
+> 다만 그렇기 때문에 더더욱 service_role이 아닌 최소 권한 키를 써야 합니다.
+
+### 커밋 전 점검
+
+```bash
+# .gitignore를 위반하며 추적 중인 파일 확인 (비어 있어야 정상)
+git ls-files -i -c --exclude-standard
+```

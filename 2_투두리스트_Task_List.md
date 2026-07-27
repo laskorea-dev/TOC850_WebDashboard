@@ -7,7 +7,7 @@
 ## 1. 종합 진척 상황 (Overall Progress)
 
 * **종합 진척률**: **100%**
-* **현재 목표**: 텔레그램 스마트 자가등록(디바이스ID 및 사이트ID 양방향 매핑) 지원, 차트 보조축 한글명 동적 맵핑화, 설정 화면 내 장비 ID 폴백 노출 개선 및 서비스 실서버 정식 배포 완료.
+* **현재 목표**: 다중 사이트 확산 대비 — 지점 식별자(site_id) 전파 결함 수정, 대시보드 단일 지점 하드코딩 제거, 저장소 관리 체계(문서·비밀정보·추적 파일) 정비 완료.
 
 ---
 
@@ -180,3 +180,45 @@
 * [x] **플롯 범위 초과 시 동적 확장(Dynamic Extension) 구현**: 플롯 범위 데이터 중 경고치 상한을 초과하는 데이터(`dataMax > maxWarning`) 발생 시 데이터 최대값(+ 약 5% 여유)으로 상한 확장, 0 미만의 음수 데이터(`dataMin < 0`) 발생 시 데이터 최소값으로 하한 확장 연산 구현
 * [x] **기본축/보조축 독립 YAxis domain 및 수동 줌 슬라이더 제어 통합 연동**: Recharts `<YAxis>` 및 Y 줌 슬라이더 컨트롤 완벽 호환 보장
 
+
+---
+
+### Phase 22: 지점 식별자(site_id) 전파 결함 수정 및 저장소 관리 체계 정비 (완료 100%)
+
+#### 22-1. site_id가 대시보드에 반영되지 않던 결함 수정 (업로더)
+* [x] **원인 규명**: Supabase 실데이터 대조로 `measure_logs_v2.Site_ID`에는 신규 지점 ID가 반영되나 `device_config.site_id`는 최초 등록값(대개 PC 호스트명)에 동결되는 현상 확증
+* [x] **`save_config()`의 site_id 미전송 결함 수정**: 기존 `bg_update_site_name_on_supabase()`는 PATCH payload에 `site_name`만 담고 `site_id`를 누락했음
+* [x] **죽은 코드 활성화**: `auto_register_device_config()` / `fetch_device_config()`가 정의부와 상호 재귀 외에 어떤 호출 지점도 없어, 신규 사이트는 `device_config` 행 자체가 생성되지 않던 문제 해소
+* [x] **`sync_device_config_to_supabase()` 신설**: `device_id` 기준 PATCH(`Prefer: return=representation`으로 매칭 확인) 후 0건이면 POST 하는 멱등 upsert 구현
+* [x] **호출 지점 2곳 연결**: 설정 저장 시 + 매 동기화 시작 시 호출 → 현장에서 저장 버튼 1회로 기존 오등록 행이 자동 교정되도록 조치
+* [x] **Fail-safe 가드 무력화 수정**: `load_config()`가 `"auto"`를 호스트명으로 먼저 치환한 뒤 가드가 다시 `"auto"` 문자열을 검사하여 절대 참이 되지 않던 결함을 `is_auto_config` 플래그 기반으로 교정
+* [x] **`build_device_config_url()` 헬퍼 도입**: `/rest/v1` 중복 보정 로직 3중 중복 제거
+
+#### 22-2. 다중 사이트 확산 저해 요인 제거 (대시보드)
+* [x] **`VITE_SUPABASE_TABLE` 하드코딩 기본값(`"Samyang_Incheon"`) 및 `siteSearchTerm` 폴백 제거**: 파라미터 누락 시 타 지점 사용자에게 기존 고객사 데이터가 노출될 수 있던 위험 제거
+* [x] **죽은 `site_config_v2` 폴백 경로 제거**: 해당 테이블은 존재하지 않아(`PGRST205`) 항상 404 후 접속 차단으로 직행하던 경로를 **측정 데이터 유무 진단 조회**로 대체
+* [x] **접속 차단 화면 진단 안내 추가**: 데이터는 수신되나 `device_config`가 없는 경우 "업로더에서 설정 저장을 1회 실행" 안내를 화면에 표시
+* [x] **한 지점 다중 기기 대응**: 기존 `confList[0]` 무조건 선택을 개선하여 `?device=` 지정 시 해당 기기 행, 미지정 시 `site_id` 정확 일치 행 우선 선택
+* [x] **미정의 변수 `deviceIds` 참조 제거**: 테스트 메일 발송 버튼 클릭 시 ReferenceError로 크래시하던 잠복 결함 수정
+
+#### 22-3. GitHub 노출 자격 증명 제거
+* [x] **노출 범위 전수 조사**: service_role 키가 배포패키지 config 외에 `TOC850_Company_Handoff/gui_uploader.py` 하드코딩, 과거 `App.jsx` / `scratch_test.js`에도 존재했음을 확인. SMTP 비밀번호·텔레그램 토큰은 회의록 및 통합명세서에도 존재
+* [x] **전체 저장소 백업**: `git bundle create full-repo-backup.bundle --all` (11.9MB, 전체 ref 보존)
+* [x] **작업트리 정리**: 소스/문서 내 비밀정보 플레이스홀더 치환 및 배포패키지 `uploader_config.json` 추적 해제(디스크 파일은 현장 사용을 위해 유지)
+* [x] **`git filter-repo --replace-text`로 전체 117개 커밋 재작성** 후 `origin/main` force push (`a39d728` → `c4f1f3e`, `--force-with-lease` 적용)
+* [x] **원격 히스토리 전수 재검사**: service_role 키 / SMTP 비밀번호 / 텔레그램 토큰 **잔여 0건** 확인
+
+#### 22-4. 저장소 관리 체계 정비
+* [x] **`.gitignore` 전면 재작성**: 섹션 정리, `**/uploader_config.json` 추가, `.env.example` 커밋 유지 negation 추가, "이미 추적 중인 파일은 규칙 추가만으로 제외되지 않음" 경고 주석 명시
+* [x] **불필요 추적 파일 해제(디스크 유지)**: `.vercel/`, `gui_uploader_v5.1.exe`(11MB), `chrome_debug.log`, Handoff `mock_google_sheet.csv`(3.5MB)
+* [x] **`docs/ARCHITECTURE.md` 신설**: 시스템 구조도, `site_id`/`device_id` 식별 체계, site_id 전파 경로, 신규 사이트 온보딩 절차, 증상별 트러블슈팅 표, 알려진 제약 및 보안 현황 수록
+* [x] **`README.md` 재작성**: 실제 디렉터리 구조 및 "오해하기 쉬운 항목"(`uploader.py` 미사용, `TOC850_Company_Handoff/` 현행 아님) 명시
+* [x] **`dashboard/.env.example` 갱신**: service_role 키 사용 금지 경고 및 URL 파라미터 기반 지점 선택 규칙 명시
+
+#### 22-5. 후속 과제 (미착수)
+* [ ] **자격 증명 재발급**: 노출 이력이 있으므로 유출 간주. Supabase API 키 / SMTP 비밀번호 / 텔레그램 봇 토큰 재발급 및 전 현장 `uploader_config.json` 갱신 필요
+* [ ] **업로더 최소 권한 전환**: service_role → anon 키 + `measure_logs_v2` INSERT / `device_config` UPSERT 전용 RLS 정책
+* [ ] **`sites` 테이블 분리**: 지점 정보(site_id/site_name/passcode/임계값)가 기기 행마다 중복 저장되는 구조적 결함 해소 (스키마 변경 승인 필요)
+* [ ] **`device_config.is_active` 컬럼 부재**: 대시보드가 `conf.is_active !== false`로 읽어 항상 `true`. 지점 비활성화 기능 무효
+* [ ] **`App.jsx` 약 2,900줄 단일 파일 컴포넌트 분리**
+* [ ] **`TOC850_Company_Handoff/` 사본 처리 방침 결정** (보존 / 삭제)

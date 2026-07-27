@@ -76,23 +76,50 @@ Supabase 실 데이터 조회로 증상을 재현·확증하였다.
 
 ---
 
-## 3. 보류 결정 사항
+## 3. GitHub 노출 자격 증명 제거 (완료)
 
-**저장소 히스토리에 남은 자격 증명 (사용자 판단으로 이번 작업에서는 보류)**
+**방침 결정**: 고객사 계측기 PC에 평문 배포되는 것은 운영상 허용. 단, **GitHub 원격 저장소에
+노출된 것은 제거**한다.
 
-`계측기_PC_배포패키지_v5.1/uploader_config.json`이 커밋되어 원격 저장소에 존재하며 다음이 평문으로 포함:
+### 노출 범위 (당초 파악보다 넓었음)
 
-- Supabase **service_role** 키 (RLS 전면 우회, 만료 2036년)
-- SMTP 계정 비밀번호 · Telegram 봇 토큰
+| 비밀정보 | 노출 파일 |
+|---|---|
+| Supabase **service_role** 키 | `계측기_PC_배포패키지_v5.1/uploader_config.json`, `TOC850_Company_Handoff/gui_uploader.py`(하드코딩), `dashboard/src/App.jsx`(과거), `dashboard/scratch_test.js`(과거) |
+| SMTP 비밀번호 | 위 config, `meeting_notes/2026-06-18_alert_and_test_page_design.md` |
+| Telegram 봇 토큰 | 위 config, `TOC850_B2B_시스템_통합명세서.md`, `dashboard/api/send-alert.js`(과거), `meeting_notes/2026-07-07_telegram_tuning_and_passcode_change.md` |
 
-동일 키가 모든 고객사 계측기 PC에도 평문 배포 중이다.
-필요 조치(키 재발급 → anon 키 + RLS 정책 전환 → 히스토리 제거)는 `docs/ARCHITECTURE.md §7`에 기록.
+### 조치
+
+1. 백업: `git bundle create full-repo-backup.bundle --all` (11.9MB, 전체 ref 보존)
+2. 작업트리 정리 — 위 문서/소스의 비밀정보를 플레이스홀더로 치환,
+   `계측기_PC_배포패키지_v5.1/uploader_config.json` 추적 해제(디스크 파일은 유지)
+3. `git filter-repo --replace-text` 로 **전체 117개 커밋** 재작성
+   - service_role 키 → `YOUR_SUPABASE_KEY_HERE`
+   - Telegram 토큰 → `<TELEGRAM_BOT_TOKEN>`
+   - SMTP 비밀번호 → `<SMTP_PASSWORD>`
+4. `origin/main` force push (`a39d728` → `c4f1f3e`, `--force-with-lease` 사용)
+   - 트리 차이는 비밀정보 치환 5개 파일뿐 (`git diff --stat a39d728 main`으로 확인)
+   - 운영 대시보드 빌드 내용에는 영향 없음
+5. 원격 히스토리 전수 재검사 — 3개 문자열 모두 **잔여 0건** 확인
+
+`feature/stage-caution-warning`(이번 site_id 수정 포함)은 AGENTS.md §2 "사용자 최종 확인 전
+push 금지" 규칙에 따라 **로컬 커밋으로만 유지**한다.
+
+### 남은 위험 (인지 필요)
+
+- GitHub는 force push 후에도 참조되지 않는 객체를 일정 기간 보관하며, **직접 SHA URL로 접근 가능**할 수 있다.
+  완전 제거가 필요하면 GitHub Support에 GC를 요청해야 한다.
+- 기존에 clone/fork한 사본에는 그대로 남아 있다.
+- 따라서 **해당 키들은 이미 유출된 것으로 간주**해야 하며, 근본 해결은 재발급이다. (아래 후속 과제)
 
 ---
 
 ## 4. 후속 과제
 
-- [ ] 자격 증명 재발급 및 히스토리 정리 (보류 해제 시)
+- [ ] 자격 증명 재발급 — Supabase API 키, SMTP 비밀번호, Telegram 봇 토큰
+      (노출 이력이 있으므로 유출 간주. 재발급 시 전 현장 uploader_config.json 갱신 필요)
+- [ ] 업로더를 service_role → anon 키 + INSERT/UPSERT 전용 RLS 정책으로 전환
 - [ ] `sites` 테이블 분리 — 지점 정보가 기기 행마다 중복되는 구조적 결함 (스키마 변경 승인 필요)
 - [ ] `device_config.is_active` 컬럼 부재 — 대시보드가 항상 `true`로 읽어 지점 비활성화 기능 무효
 - [ ] `App.jsx` 약 2,900줄 단일 파일 컴포넌트 분리
