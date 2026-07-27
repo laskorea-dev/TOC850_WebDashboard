@@ -4,7 +4,7 @@ import shutil
 import subprocess
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VERSION = "5.3"
+VERSION = "5.4"
 PACKAGE_NAME = f"계측기_PC_배포패키지_v{VERSION}"
 SPEC_FILENAME = f"gui_uploader_v{VERSION}.spec"
 SPEC_PATH = os.path.join(BASE_DIR, SPEC_FILENAME)
@@ -107,6 +107,35 @@ README_CONTENT = f"""# TOC-850 B2B SYNC CLIENT v{VERSION} 배포 가이드
      - **사이트 이름 (Site Name)**: 예) `삼양사 인천공장`
      - **상세 인프라 설정 (Supabase)**: 본사에서 발급받은 Supabase URL 및 API Key 입력
    - 저장이 완료되면 하단의 **[업로드 재개 ▶]**를 누르면 안전장치가 해제되며, 동기화가 활성화됩니다.
+
+> ⚠️ **Site ID와 Site Name 중 하나라도 `auto`로 남아 있으면** 안전장치가 유지되어
+> 자동 동기화와 지점 등록이 모두 보류됩니다. **반드시 두 값을 모두 실제 값으로 입력**하십시오.
+
+## ✅ 설치 후 필수 확인 (이걸 안 하면 대시보드 접속이 안 됩니다)
+
+업로더 로그 창에 아래 둘 중 하나가 반드시 떠야 합니다.
+
+```
+[원격 설정 동기화] '<기기ID>'의 지점 정보를 site_id='<지점ID>', ... 으로 갱신했습니다.
+[자동 등록 성공] Supabase에 '<기기ID>' 기기 설정(지점 '<지점ID>')이 자동 등록되었습니다!
+```
+
+이 로그가 뜨면 Supabase `device_config`에 지점이 등록된 것이며, 그때부터
+`https://<대시보드주소>/?site=<지점ID>` 접속이 가능합니다.
+
+반대로 아래가 뜨면 아직 미설정 상태입니다.
+
+```
+[원격 설정 보류] 지점 식별자/사이트 이름이 'auto' 상태이므로 device_config 동기화를 건너뜁니다.
+```
+
+> 💡 측정 데이터가 클라우드에 올라가는 것과, 대시보드 접속 권한이 열리는 것은 **별개**입니다.
+> 데이터는 `measure_logs_v2`에, 접속 권한은 `device_config`에 등록됩니다.
+> 데이터가 보이는데 접속이 안 된다면 **[설정 저장 💾]을 한 번 더 누르십시오.**
+
+## 🩺 문제 발생 시
+
+같은 폴더에서 `diagnose_sync.py`(또는 배포된 진단 도구)를 실행하여 결과를 개발실에 전달하십시오.
 """
 
 def main():
