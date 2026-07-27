@@ -18,7 +18,6 @@ import {
 // =========================================================================
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
-const SUPABASE_TABLE = import.meta.env.VITE_SUPABASE_TABLE || "Samyang_Incheon";
 const SUPABASE_MEASUREMENT_TABLE = import.meta.env.VITE_SUPABASE_MEASUREMENT_TABLE || "measure_logs_v2";
 const PAGE_SIZE = 1000; // Supabase 기본 limit
 
@@ -151,9 +150,10 @@ function App() {
     return '';
   }, []);
 
-  // 설정 검색용 키워드
+  // 설정 검색용 키워드 — URL 파라미터에서만 도출한다.
+  // (특정 지점명을 기본값으로 두면 파라미터 누락 시 엉뚱한 지점 데이터가 노출되므로 폴백 금지)
   const siteSearchTerm = useMemo(() => {
-    return siteId || deviceIdParam || SUPABASE_TABLE;
+    return siteId || deviceIdParam || '';
   }, [siteId, deviceIdParam]);
 
   // 관리자 모드 여부 분석 (?admin 파라미터 존재 여부)
@@ -258,17 +258,17 @@ function App() {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
       const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      
-      // 1단계: 신규 device_config 테이블 조회
+
       const configEndpoint = baseUrl.includes('/rest/v1')
         ? `${baseUrl}/device_config`
         : `${baseUrl}/rest/v1/device_config`;
 
+      const lookupKey = deviceIdParam || siteId || siteSearchTerm;
       const filter = deviceIdParam
         ? `or=(device_id.ilike.${encodeURIComponent(deviceIdParam)},site_name.ilike.${encodeURIComponent(deviceIdParam)})`
-        : `or=(site_id.ilike.${encodeURIComponent(siteId || siteSearchTerm)},site_name.ilike.${encodeURIComponent(siteId || siteSearchTerm)})`;
+        : `or=(site_id.ilike.${encodeURIComponent(lookupKey)},site_name.ilike.${encodeURIComponent(lookupKey)})`;
 
-      const response = await fetch(`${configEndpoint}?${filter}`, {
+      const response = await fetch(`${configEndpoint}?${filter}&order=created_at.asc`, {
         headers: {
           'apikey': SUPABASE_KEY,
           'Authorization': `Bearer ${SUPABASE_KEY}`
@@ -278,7 +278,21 @@ function App() {
       if (response.ok) {
         const confList = await response.json();
         if (Array.isArray(confList) && confList.length > 0) {
-          const conf = confList[0];
+          // 한 지점에 계측기가 여러 대일 수 있다. ?device= 가 주어지면 그 기기 행을,
+          // 아니면 site_id가 정확히 일치하는 행을 우선 선택한다 (site_name 매칭은 최후순위).
+          const norm = (v) => (v || '').toString().trim().toLowerCase();
+          const target = norm(lookupKey);
+          const conf =
+            confList.find((c) => norm(c.device_id) === target) ||
+            confList.find((c) => norm(c.site_id) === target) ||
+            confList[0];
+
+          if (confList.length > 1 && !deviceIdParam) {
+            console.info(
+              `[device_config] 지점 '${lookupKey}'에 ${confList.length}대의 기기가 등록되어 있습니다. ` +
+              `설정 기준 기기: '${conf.device_id}' (특정 기기 지정은 ?device=<device_id> 사용)`
+            );
+          }
           let alertObj = null;
           if (conf.toc_alert_high) {
             try {
@@ -305,54 +319,42 @@ function App() {
         }
       }
 
-      // 2단계: 하위 호환을 위해 site_config_v2 테이블 추가 조회
-      const legacyEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/site_config_v2`
-        : `${baseUrl}/rest/v1/site_config_v2`;
+      // device_config에 행이 없는 경우 — 측정 데이터 유무를 확인해 원인을 특정한다.
+      // (업로더는 측정 데이터에 Site_ID를 즉시 반영하지만, device_config 등록/갱신이
+      //  누락되면 데이터는 쌓이는데 대시보드는 접속을 거부하는 상태가 된다.)
+      const measureEndpoint = baseUrl.includes('/rest/v1')
+        ? `${baseUrl}/${SUPABASE_MEASUREMENT_TABLE}`
+        : `${baseUrl}/rest/v1/${SUPABASE_MEASUREMENT_TABLE}`;
 
-      const legacyFilter = `site_id.ilike.${encodeURIComponent(siteId || siteSearchTerm)}`;
+      const probeFilter = deviceIdParam
+        ? `Device_ID=eq.${encodeURIComponent(deviceIdParam)}`
+        : `Site_ID=eq.${encodeURIComponent(lookupKey)}`;
 
-      const legacyResponse = await fetch(`${legacyEndpoint}?${legacyFilter}`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-
-      if (legacyResponse.ok) {
-        const legacyConfList = await legacyResponse.json();
-        if (Array.isArray(legacyConfList) && legacyConfList.length > 0) {
-          const conf = legacyConfList[0];
-          let alertObj = null;
-          if (conf.toc_alert_high) {
-            try {
-              alertObj = typeof conf.toc_alert_high === 'string'
-                ? JSON.parse(conf.toc_alert_high)
-                : conf.toc_alert_high;
-            } catch (e) {
-              console.error("임계값 JSON 파싱 에러:", e);
-            }
+      let diagnosis = 'UNKNOWN';
+      try {
+        const probeRes = await fetch(`${measureEndpoint}?${probeFilter}&select=Site_ID,Device_ID&limit=1`, {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
           }
-          setSiteConfig({
-            device_id: conf.site_id, // site_id로 폴백 매핑
-            site_id: conf.site_id,
-            passcode: conf.passcode || '850',
-            site_name: conf.site_name || 'LAS TOC-850 온라인 계측 모니터링 대시보드',
-            is_active: conf.is_active !== false,
-            alert_emails: conf.alert_emails || '',
-            telegram_chat_ids: conf.telegram_chat_ids || '',
-            toc_alert_high: alertObj,
-            loading: false,
-            isValidDevice: true // 구버전 테이블에 설정이 존재하므로 유효함
-          });
-          return;
+        });
+        if (probeRes.ok) {
+          const probeRows = await probeRes.json();
+          diagnosis = Array.isArray(probeRows) && probeRows.length > 0
+            ? 'DATA_WITHOUT_CONFIG'
+            : 'NO_DATA';
         }
+      } catch (probeErr) {
+        console.error('측정 데이터 진단 조회 실패:', probeErr);
       }
+
+      setSiteConfig(prev => ({ ...prev, loading: false, isValidDevice: false, diagnosis }));
+      return;
     } catch (err) {
-      console.error("device_config / site_config_v2 로드 실패:", err);
+      console.error("device_config 로드 실패:", err);
     }
 
-    // 두 테이블 모두에서 발견되지 않은 경우 최종 차단
+    // 조회 자체가 실패한 경우 최종 차단
     setSiteConfig(prev => ({
       ...prev,
       loading: false,
@@ -1495,9 +1497,16 @@ function App() {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: '1.6' }}>
             등록되지 않은 계측 장비 또는 지점 ID(<strong>{deviceIdParam || siteId || siteSearchTerm}</strong>)입니다.
           </p>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-            입력된 주소를 다시 확인하시거나, 시스템 관리자에게 문의하여 주십시오.
-          </p>
+          {siteConfig.diagnosis === 'DATA_WITHOUT_CONFIG' ? (
+            <p style={{ color: 'var(--accent-amber, #f59e0b)', fontSize: '0.82rem', lineHeight: '1.6' }}>
+              해당 ID로 측정 데이터는 수신되고 있으나 기기 설정(device_config)이 등록되어 있지 않습니다.<br />
+              현장 업로더에서 지점 식별자를 확인한 뒤 <strong>설정 저장(💾)</strong>을 한 번 실행하면 자동으로 등록됩니다.
+            </p>
+          ) : (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+              입력된 주소를 다시 확인하시거나, 시스템 관리자에게 문의하여 주십시오.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -1868,7 +1877,6 @@ function App() {
                       ...localAlerts,
                       alert_emails: alertEmails,
                       telegram_chat_ids: telegramChatIds,
-                      device_ids: deviceIds,
                       trigger_test_email: true,
                       receivers: siteConfig.toc_alert_high?.receivers || [] // 수신자 목록 보존
                     };

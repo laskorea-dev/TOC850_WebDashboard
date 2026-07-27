@@ -24,7 +24,7 @@
 - 데이터가 Supabase 클라우드로 성공적으로 INSERT될 때, 신규 데이터 중 경고 한계를 초과하는 건이 있으면 자동으로 SMTP 이메일을 수신자 목록에 발송하는 기능을 파이썬 업로더(`gui_uploader.py`)에 연동하였습니다.
 - **메일 발송용 SMTP 서버 설정 (ecounterp)**:
   - SMTP 서버: `wsmtp.ecounterp.com` (Port: 587)
-  - 발신 계정 ID: `toc850@las-korea.com` (PW: `<SMTP_PASSWORD>`)
+  - 발신 계정 ID: `toc850@las-korea.com` (PW: `<SMTP_PASSWORD — 인프라 문서 참조>`)
 - **이메일 폭주 방지(쿨다운)**: 각 채널별로 경고 메일 발송 성공 시 **1시간(3600초) 쿨다운 타이머**가 작동하여 이메일 과다 수신을 방지합니다.
 
 ---

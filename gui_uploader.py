@@ -527,34 +527,66 @@ class GUIUploaderApp:
         # 모든 시도가 실패했을 때 예외 발생
         raise last_exception
 
-    def bg_update_site_name_on_supabase(self, device_id, site_name, supabase_url, supabase_key):
-        """Supabase device_config의 site_name 컬럼을 백그라운드에서 PATCH로 비동기 업데이트합니다."""
-        if not site_name or site_name.strip() == "" or site_name.lower() == "auto":
-            return
-        if not supabase_url or not supabase_key:
-            return
+    def build_device_config_url(self, base_url=None, query=""):
+        """device_config 엔드포인트 URL을 조립합니다. (/rest/v1 중복 방지)"""
+        raw = (base_url if base_url is not None else self.supabase_url).rstrip('/')
+        prefix = raw if "/rest/v1" in raw else f"{raw}/rest/v1"
+        return f"{prefix}/device_config{query}"
+
+    def sync_device_config_to_supabase(self, supabase_url=None, supabase_key=None):
+        """device_config 행의 site_id/site_name을 현재 설정과 일치시킵니다.
+
+        device_id를 키로 PATCH를 먼저 시도하고, 일치하는 행이 없을 때만 POST로 신규
+        등록합니다. 매 동기화마다 호출해도 안전한 멱등(idempotent) 연산이며, 업로더
+        UI에서 지점 식별자를 변경하면 이 경로를 통해 원격에 즉시 반영됩니다.
+        """
+        url = supabase_url if supabase_url is not None else self.supabase_url
+        key = supabase_key if supabase_key is not None else self.supabase_key
+
+        if not url or not key:
+            return False
+        if getattr(self, 'is_auto_config', False):
+            self.msg_queue.put(("log", "[원격 설정 보류] 지점 식별자/사이트 이름이 'auto' 상태이므로 device_config 동기화를 건너뜁니다."))
+            return False
+        if not self.site_id or not self.site_name or not self.device_id:
+            return False
+
+        headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+        patch_url = self.build_device_config_url(url, f"?device_id=eq.{urllib.parse.quote(self.device_id)}")
+
         try:
-            base_url = supabase_url.rstrip('/')
-            if "/rest/v1" in base_url:
-                config_url = f"{base_url}/device_config?device_id=eq.{urllib.parse.quote(device_id)}"
+            # 1) 기존 행 갱신 시도 — return=representation으로 실제 매칭 여부를 확인
+            payload = {"site_id": self.site_id, "site_name": self.site_name}
+            status, body = self.make_supabase_request(
+                patch_url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={**headers, "Prefer": "return=representation"},
+                method="PATCH",
+                timeout=30
+            )
+            if status in [200, 204]:
+                updated = []
+                if body:
+                    try:
+                        updated = json.loads(body.decode('utf-8'))
+                    except Exception:
+                        updated = []
+                if updated:
+                    self.msg_queue.put(("log", f"[원격 설정 동기화] '{self.device_id}'의 지점 정보를 site_id='{self.site_id}', site_name='{self.site_name}'으로 갱신했습니다."))
+                    return True
             else:
-                config_url = f"{base_url}/rest/v1/device_config?device_id=eq.{urllib.parse.quote(device_id)}"
-            
-            payload = {
-                "site_name": site_name
-            }
-            data_bytes = json.dumps(payload).encode('utf-8')
-            headers = {
-                "apikey": supabase_key,
-                "Authorization": f"Bearer {supabase_key}",
-                "Content-Type": "application/json",
-                "Prefer": "return=minimal"
-            }
-            status, _ = self.make_supabase_request(config_url, data=data_bytes, headers=headers, method="PATCH", timeout=30)
-            if status in [200, 201, 204]:
-                self.msg_queue.put(("log", f"[원격 설정 갱신] Supabase 기기 '{device_id}'의 원격 한글 지점명이 '{site_name}'으로 업데이트되었습니다."))
+                self.msg_queue.put(("log", f"[원격 설정 갱신 실패] 서버 응답 상태: {status}"))
+                return False
+
+            # 2) 매칭된 행이 없으면 신규 등록
+            return self.auto_register_device_config(url, key)
         except Exception as e:
-            self.msg_queue.put(("log", f"[원격 설정 갱신 오류] Supabase 사이트 한글명 업데이트 실패: {e}"))
+            self.msg_queue.put(("log", f"[원격 설정 동기화 오류] {e}"))
+            return False
 
     def save_config_quietly(self):
         """팝업 메시지창 없이 설정을 파일에 조용히 저장합니다."""
@@ -654,11 +686,11 @@ class GUIUploaderApp:
             self.supabase_table = supabase_table
             self.supabase_key = supabase_key
 
-            # Supabase device_config의 site_name 컬럼 비동기 업데이트
+            # Supabase device_config의 지점 식별자(site_id) 및 지점명(site_name) 비동기 반영
             if supabase_url and supabase_key:
                 threading.Thread(
-                    target=self.bg_update_site_name_on_supabase,
-                    args=(self.device_id, site_name, supabase_url, supabase_key),
+                    target=self.sync_device_config_to_supabase,
+                    args=(supabase_url, supabase_key),
                     daemon=True
                 ).start()
 
@@ -831,6 +863,11 @@ class GUIUploaderApp:
             self.msg_queue.put(("error", "DB 파일 실종"))
             return
         
+        # 매 동기화 시작 시 device_config의 지점 정보를 현재 설정과 일치시킨다.
+        # (멱등 연산이며, 행이 없으면 신규 등록까지 수행하여 대시보드 접속을 보장)
+        if not self.is_mock:
+            self.sync_device_config_to_supabase()
+
         # Supabase 서버에서 가장 최신 업로드 시각을 직접 조회하여 증분 기준점 확인
         if not self.is_mock:
             self.msg_queue.put(("log", "서버 최신 데이터 시각 조회 중..."))
@@ -991,21 +1028,21 @@ class GUIUploaderApp:
             self.msg_queue.put(("log", f"[Supabase API 연결 오류] 호스트 연결 실패: {e}"))
             return False
 
-    def auto_register_device_config(self):
+    def auto_register_device_config(self, supabase_url=None, supabase_key=None):
         """Supabase device_config 테이블에 현재 device_id용 기본 설정을 자동 등록합니다."""
-        if not self.site_id or self.site_id.strip() == "" or self.site_id.lower() == "auto":
-            self.msg_queue.put(("log", "[자동 등록 보류] site_id가 'auto'이거나 비어있어 device_config 등록을 진행하지 않습니다."))
+        # 'auto' 문자열은 load_config 단계에서 이미 호스트명으로 치환되므로,
+        # 문자열이 아닌 is_auto_config 플래그로 미설정 상태를 판별해야 한다.
+        if getattr(self, 'is_auto_config', False):
+            self.msg_queue.put(("log", "[자동 등록 보류] 지점 식별자/사이트 이름이 설정되지 않아 device_config 등록을 진행하지 않습니다."))
             return False
-        if not self.site_name or self.site_name.strip() == "" or self.site_name.lower() == "auto":
-            self.msg_queue.put(("log", "[자동 등록 보류] site_name이 'auto'이거나 비어있어 device_config 등록을 진행하지 않습니다."))
+        if not self.site_id or not self.site_name or not self.device_id:
+            self.msg_queue.put(("log", "[자동 등록 보류] 지점/기기 식별자가 비어 있어 device_config 등록을 진행하지 않습니다."))
             return False
+        url = supabase_url if supabase_url is not None else self.supabase_url
+        key = supabase_key if supabase_key is not None else self.supabase_key
         try:
-            base_url = self.supabase_url.rstrip('/')
-            if "/rest/v1" in base_url:
-                config_url = f"{base_url}/device_config"
-            else:
-                config_url = f"{base_url}/rest/v1/device_config"
-                
+            config_url = self.build_device_config_url(url)
+
             default_toc_alert = {
                 "use_single_table": True,
                 "alert_emails": "",
@@ -1026,14 +1063,14 @@ class GUIUploaderApp:
             
             data_bytes = json.dumps(payload).encode('utf-8')
             headers = {
-                "apikey": self.supabase_key,
-                "Authorization": f"Bearer {self.supabase_key}",
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal"
             }
             status, _ = self.make_supabase_request(config_url, data=data_bytes, headers=headers, method="POST", timeout=30)
             if status in [200, 201, 204]:
-                self.msg_queue.put(("log", f"[자동 등록 성공] Supabase에 '{self.device_id}' 기기 설정이 성공적으로 자동 등록되었습니다!"))
+                self.msg_queue.put(("log", f"[자동 등록 성공] Supabase에 '{self.device_id}' 기기 설정(지점 '{self.site_id}')이 자동 등록되었습니다!"))
                 return True
             else:
                 self.msg_queue.put(("log", f"[자동 등록 실패] 서버 응답 상태: {status}"))
@@ -1044,12 +1081,9 @@ class GUIUploaderApp:
     def fetch_device_config(self, allow_auto_reg=True):
         """Supabase에서 기기 설정(임계값 및 이메일 수신 목록)을 실시간으로 가져옵니다."""
         try:
-            base_url = self.supabase_url.rstrip('/')
-            if "/rest/v1" in base_url:
-                config_url = f"{base_url}/device_config?device_id=eq.{urllib.parse.quote(self.device_id)}"
-            else:
-                config_url = f"{base_url}/rest/v1/device_config?device_id=eq.{urllib.parse.quote(self.device_id)}"
-                
+            config_url = self.build_device_config_url(
+                query=f"?device_id=eq.{urllib.parse.quote(self.device_id)}"
+            )
             headers = {
                 "apikey": self.supabase_key,
                 "Authorization": f"Bearer {self.supabase_key}"

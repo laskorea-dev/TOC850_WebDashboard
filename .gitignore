@@ -1,36 +1,63 @@
-# 🗄️ Database & Config files
-*.db
-last_upload.json
-uploader_config.json
+# =============================================================================
+# TOC850_WebDashboard — Git 제외 규칙
+#
+# 주의: 규칙을 추가해도 "이미 추적 중인 파일"은 계속 추적됩니다.
+#       실수로 커밋된 파일은 `git rm --cached <경로>`로 추적을 해제해야 합니다.
+#       추적 위반 목록 확인: git ls-files -i -c --exclude-standard
+# =============================================================================
 
-# 🐍 Python cache & Log files
+# -----------------------------------------------------------------------------
+# 🔑 자격 증명 · 환경변수  (절대 커밋 금지)
+#     uploader_config.json 에는 Supabase 키가 들어가므로 반드시 제외.
+#     배포용 템플릿은 uploader_config.example.json / .env.example 만 커밋합니다.
+# -----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+credentials.json
+uploader_config.json
+**/uploader_config.json
+!uploader_config.example.json
+.vercel/
+
+# -----------------------------------------------------------------------------
+# 🗄️ 로컬 데이터베이스 · 런타임 상태 파일
+# -----------------------------------------------------------------------------
+*.db
+*.db-journal
+last_upload.json
+
+# -----------------------------------------------------------------------------
+# 🐍 Python 캐시 · 로그
+# -----------------------------------------------------------------------------
 __pycache__/
 *.pyc
+*.pyo
 uploader.log
+chrome_debug.log
 
-# 📦 PyInstaller build artifacts & Executables
+# -----------------------------------------------------------------------------
+# 📦 PyInstaller 빌드 산출물 · 실행 파일
+#     릴리즈 exe 는 git 이 아닌 NAS(Z:\...\01_Uploader_배포패키지)로 배포합니다.
+#     (AGENTS.md "최종 배포 및 산출물 백업 규칙" 참조)
+# -----------------------------------------------------------------------------
 build/
 dist/
 *.spec
 *.exe
 
-# 🌐 Node.js (React Dashboard)
+# -----------------------------------------------------------------------------
+# 🌐 Node.js / Vite (React 대시보드)
+# -----------------------------------------------------------------------------
 node_modules/
-dashboard/node_modules/
 dashboard/dist/
-dashboard/public/mock_google_sheet.csv
+**/public/mock_google_sheet.csv
 
-# 🔑 Local environment files (API Keys)
-.env
-.env.local
-.env.*.local
-credentials.json
-
-# 💻 System & IDE files
+# -----------------------------------------------------------------------------
+# 💻 시스템 · IDE
+# -----------------------------------------------------------------------------
 .vscode/
 .idea/
 Thumbs.db
 Desktop.ini
 .DS_Store
-.vercel
-.env*
