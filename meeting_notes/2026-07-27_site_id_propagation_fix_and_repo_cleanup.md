@@ -115,7 +115,68 @@ push 금지" 규칙에 따라 **로컬 커밋으로만 유지**한다.
 
 ---
 
-## 4. 후속 과제
+## 4. 현장 대응 — 평택1(Pyeongtaek1) 접속 불가 처리
+
+### 증상
+`https://toc-850-web-dashboard.vercel.app/?site=Pyeongtaek1` 접속 시 "등록되지 않은 지점 ID" 차단.
+사용자는 "Supabase에 평택1이 등록되어 있는데 왜 안 되느냐"고 인지하고 있었음.
+
+### 원인 — 두 테이블의 분리
+접속 권한은 **`device_config`** 로 판정되는데 해당 행이 없었다. 사용자가 본 것은 `measure_logs_v2`의
+측정 데이터였다. 배포 번들이 실행하는 쿼리를 직접 재현하여 확인:
+
+```
+device_config?or=(site_id.ilike.Pyeongtaek1,site_name.ilike.Pyeongtaek1)  → 0건
+```
+
+| 테이블 | Pyeongtaek1 | 비고 |
+|---|---|---|
+| `measure_logs_v2` | 1건 (2026-07-24 17:08:06) | 측정 데이터. Device_ID=TOC-260706-01 |
+| `device_config` | 0건 (`site_id='TOC-260706-01'`) | **접속 권한 판정 대상** |
+
+### exe 반입만으로는 해결 불가 — 검증 결과
+현장 반입 예정이던 `gui_uploader_v5.3.exe`는 2026-07-08 빌드로 수정 이전 코드였다.
+PyInstaller CArchive를 추출하여 엔트리 스크립트 코드 객체를 대조 검증:
+
+| 심볼 | v5.3 (7/8) | v5.4 (7/27) |
+|---|---|---|
+| `sync_device_config_to_supabase` | 없음 | 있음 |
+| `build_device_config_url` | 없음 | 있음 |
+| `bg_update_site_name_on_supabase`(구) | 남아있음 | 제거됨 |
+
+→ `build_release.py` VERSION 5.4로 재빌드하여 `계측기_PC_배포패키지_v5.4/` 생성.
+
+**현장 작업 시 주의**: 런처 `.bat`이 exe 파일명을 하드코딩하므로 **exe만 덮어쓰면 안 된다.**
+폴더 전체를 교체하고 현장의 `uploader_config.json`만 보존할 것.
+
+**대시보드 재배포는 불필요**: 현재 배포본도 `or=(site_id.ilike.…)` 쿼리를 사용하므로
+`device_config.site_id`만 교정되면 기존 빌드 그대로 접속된다. (배포 번들 코드 확인 완료)
+
+### 즉시 조치 (사용자 승인 후 실행)
+현장 설치 전 접속을 열기 위해 `device_config` 1행을 PATCH:
+
+```
+device_config?device_id=eq.TOC-260706-01   {"site_id": "Pyeongtaek1"}
+→ HTTP 200, 1건 갱신
+```
+
+`site_name`은 v5.4 설치 시 현장 설정값으로 자동 덮어써지므로 변경하지 않음(현재 `TOC-260706-01`).
+브라우저 확인 결과 차단 화면이 사라지고 패스코드 입력 화면이 정상 노출됨을 검증.
+
+### 미처리 (사용자 판단)
+- **과거 데이터 782건은 그대로 둔다**: TOC-260706-01 기기 데이터 783건 중 782건이
+  `Site_ID='TOC-260706-01'`로 적재되어 있어 `?site=Pyeongtaek1` 화면에는 보이지 않는다.
+  시운전 이전 데이터이므로 이관하지 않기로 결정. 새로 쌓이는 데이터부터 표시된다.
+- **나머지 3대(TOC-260706-02/03, TMSTOC-250701-01)는 현장 설치 시 함께 처리**.
+  특히 TOC-260706-03은 `site_id='TOC-260706-02'`로 남의 지점 ID를 갖고 있어 교정 필요.
+
+### 추가 관찰
+평택 PC는 2026-07-24 17:08 이후 데이터 수신이 없다(삼양사는 당일 17:17까지 정상 수신).
+업로더 미가동 또는 PC 전원 오프로 추정되며, 현장 설치 시 확인 필요.
+
+---
+
+## 5. 후속 과제
 
 - [ ] 자격 증명 재발급 — Supabase API 키, SMTP 비밀번호, Telegram 봇 토큰
       (노출 이력이 있으므로 유출 간주. 재발급 시 전 현장 uploader_config.json 갱신 필요)
