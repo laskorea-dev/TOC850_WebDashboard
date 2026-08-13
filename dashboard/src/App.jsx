@@ -79,6 +79,14 @@ const parseDate = (dateStr) => {
   return new Date(isoStr);
 };
 
+// 차트 X축(시간 숫자축) 눈금 라벨 포맷: "MM-DD HH:mm"
+const formatAxisTime = (ms) => {
+  if (!Number.isFinite(ms)) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = new Date(ms);
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 // ISO datetime-local 포맷 (input용)
 const toDatetimeLocal = (date) => {
   const pad = (n) => String(n).padStart(2, '0');
@@ -1036,6 +1044,8 @@ function App() {
         timeSlots[timeBucket] = {
           TimeBucket: timeBucket,
           ShortTime: `${datePart.slice(5)} ${bucketHour}:${bucketMin}`,
+          // 숫자(시간) X축용 실제 타임스탬프 - 결측 구간이 간격 그대로 표시되도록
+          TimeValue: new Date(d.getFullYear(), d.getMonth(), d.getDate(), Number(bucketHour), Number(bucketMin)).getTime(),
           _counts: {}
         };
       }
@@ -1053,12 +1063,15 @@ function App() {
 
     // 평균값 계산 후 _counts 제거
     const result = Object.values(timeSlots).map(slot => {
-      const entry = { TimeBucket: slot.TimeBucket, ShortTime: slot.ShortTime };
+      const entry = { TimeBucket: slot.TimeBucket, ShortTime: slot.ShortTime, TimeValue: slot.TimeValue };
       for (const [chName, agg] of Object.entries(slot._counts)) {
         entry[chName] = parseFloat((agg.sum / agg.count).toFixed(2));
       }
       return entry;
     });
+
+    // 시간 오름차순 정렬 (원본 데이터 순서와 무관하게 X축이 항상 시간순이 되도록)
+    result.sort((a, b) => a.TimeValue - b.TimeValue);
 
     return result;
   }, [trendFilteredData, selectedAttr]);
@@ -2199,11 +2212,14 @@ function App() {
                   <LineChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                     <XAxis
-                      dataKey="ShortTime"
+                      dataKey="TimeValue"
+                      type="number"
+                      scale="time"
+                      domain={['dataMin', 'dataMax']}
                       stroke="var(--text-muted)"
                       fontSize={11}
-                      interval="preserveStartEnd"
                       tickCount={8}
+                      tickFormatter={formatAxisTime}
                     />
                     <YAxis
                       yAxisId="left"
@@ -2231,6 +2247,7 @@ function App() {
                         borderRadius: '8px',
                         color: 'var(--text-main)'
                       }}
+                      labelFormatter={(v) => formatAxisTime(v)}
                     />
                     {trendChannels.map(chName => {
                       const chId = channelNameToIdMap[chName] || '';
@@ -2256,7 +2273,8 @@ function App() {
                     })}
                     {chartData.length > 20 && (
                       <Brush
-                        dataKey="ShortTime"
+                        dataKey="TimeValue"
+                        tickFormatter={formatAxisTime}
                         height={28}
                         stroke="var(--accent-cyan)"
                         fill="var(--bg-tertiary)"
