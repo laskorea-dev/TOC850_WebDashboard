@@ -222,3 +222,23 @@
 * [ ] **`device_config.is_active` 컬럼 부재**: 대시보드가 `conf.is_active !== false`로 읽어 항상 `true`. 지점 비활성화 기능 무효
 * [ ] **`App.jsx` 약 2,900줄 단일 파일 컴포넌트 분리**
 * [ ] **`TOC850_Company_Handoff/` 사본 처리 방침 결정** (보존 / 삭제)
+
+### 23. 신기폐수처리장 지점 식별자 통합 및 과거 데이터 병합 (2026-08-13)
+
+#### 23-1. 원인 규명
+* [x] **증상 확증**: 최신 데이터 미표시 + 사이트 이름으로만 접속되는 현상을 Supabase 실데이터 조회로 재현. `device_config.site_id`가 호스트명(`TMSTOC-250701-01`)에 동결되어 접속 판정(site_id **또는** site_name)은 통과하나 데이터 필터(`device_config.site_id` 단독)는 신규 `Shingi` 데이터를 잡지 못함을 확인
+* [x] **업로더 v5.4 정상 동작 확인 (초기 판단 정정)**: 구버전 설치로 추정했으나, 약 15분 뒤 재조회 시 `sync_device_config_to_supabase()`가 다음 동기화 주기에 스스로 교정한 것을 확인. exe 교체 불필요
+* [x] **자동 교정 범위의 한계 식별**: v5.4는 `device_config`만 교정하며, 이미 옛 `Site_ID`로 적재된 측정 데이터는 그대로 남는다는 점을 명확화
+
+#### 23-2. 데이터 통합 실행
+* [x] **`device_config.site_id` → `Shingi`** (1건)
+* [x] **과거 측정 데이터 1,265건의 `Site_ID` 통합**: `TMSTOC-250701-01` → `Shingi`. 2025-06-30 ~ 2026-08-13 전 구간 연결 (통합 후 `Shingi` 1,269건)
+* [x] **사전 안전 확인**: 옛 Site_ID를 쓰는 타 기기 데이터 0건 확인 후 실행, UPDATE 필터를 `Device_ID` 로 한정하여 타 지점 무영향
+
+#### 23-3. 산출물 및 문서화
+* [x] **`tools/migrate_site_id.py` 신설**: `device_config` 교정 + 과거 데이터 통합을 수행하는 멱등 스크립트. 타 기기 데이터 혼입 시 중단 가드 내장. 재실행으로 멱등성 검증
+* [x] **`docs/ARCHITECTURE.md` 트러블슈팅 표 확장**: "사이트 이름으로는 접속되는데 site_id로는 막힘", "최근 데이터만 보이고 과거가 끊김" 2개 증상 행 추가
+* [x] **배포 패키지 config에 Supabase 접속 정보 기입**: `계측기_PC_배포패키지_v5.4/uploader_config.json`에 URL/Key 기입 및 `is_mock=false`. Fail-safe 유지를 위해 `site_id`/`site_name`/`is_paused`는 `auto`/`true` 유지. `.gitignore`로 저장소 미커밋 확인
+
+#### 23-4. 미처리 (사용자 판단)
+* [ ] **`TOC-260706-03`의 `site_id`가 `TOC-260706-02`(타 기기 지점 ID)** — 두 기기 모두 현장 가동 전이고 데이터 문제 없어 **그대로 두기로 결정**. 현장 설치 시 업로더 설정으로 v5.4가 자동 교정

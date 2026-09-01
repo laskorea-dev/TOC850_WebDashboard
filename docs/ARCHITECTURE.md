@@ -126,6 +126,8 @@ if getattr(self, 'is_auto_config', False): ...
 | "등록되지 않은 … 지점 ID" + **주황색 안내문** | 측정 데이터는 오는데 `device_config` 행이 없음 | 업로더에서 **설정 저장** 1회 실행 |
 | "등록되지 않은 … 지점 ID" (안내문 없음) | 해당 ID로 들어온 데이터 자체가 없음 | site_id 오타 확인, 업로더 가동 여부 확인 |
 | 데이터 0건인데 접속은 됨 | site_id는 맞으나 전송 실패 | `diagnose_sync.py` Step 3/4 확인 |
+| **사이트 이름으로는 접속되는데 site_id로는 막힘** | `device_config.site_id`가 옛 값(호스트명 등)에 동결. 접속 판정은 `site_id` **또는** `site_name` 으로 하지만 데이터 필터는 `device_config.site_id` 로만 한다 | v5.4 이상이면 다음 동기화 주기에 자동 교정됨. 즉시 필요하면 `tools/migrate_site_id.py` |
+| **최근 데이터만 보이고 과거가 끊김** | 업로더에서 Site ID를 나중에 변경. 변경 이전 데이터는 옛 `Site_ID` 로 남는다 | `python tools/migrate_site_id.py <device_id> <옛 site_id> <새 site_id>` 로 통합 |
 
 ---
 
