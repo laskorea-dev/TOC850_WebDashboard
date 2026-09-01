@@ -1,0 +1,1255 @@
+<title>TOC 측정데이터 분석 — 점촌 · 신기 (2026-08-05 ~ 08-13)</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane:      #f4f6f7;
+    --surface:    #fdfefe;
+    --ink:        #0d1113;
+    --ink-2:      #4c545a;
+    --muted:      #838d94;
+    --grid:       #e3e7ea;
+    --axis:       #c2c9ce;
+    --rule:       rgba(13,17,19,0.10);
+    --s1:         #2a78d6;
+    --s1-soft:    rgba(42,120,214,0.13);
+    --s2:         #eb6834;
+    --s2-soft:    rgba(235,104,52,0.13);
+    --critical:   #d03b3b;
+    --warning:    #fab219;
+    --weekend:    rgba(13,17,19,0.045);
+    --tip-bg:     #0d1113;
+    --tip-ink:    #fdfefe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane:    #0b0d0e;
+      --surface:  #16191b;
+      --ink:      #ffffff;
+      --ink-2:    #bcc4ca;
+      --muted:    #8b939a;
+      --grid:     #272b2e;
+      --axis:     #3a4044;
+      --rule:     rgba(255,255,255,0.11);
+      --s1:       #3987e5;
+      --s1-soft:  rgba(57,135,229,0.18);
+      --s2:       #d95926;
+      --s2-soft:  rgba(217,89,38,0.18);
+      --critical: #e05c5c;
+      --warning:  #fab219;
+      --weekend:  rgba(255,255,255,0.05);
+      --tip-bg:   #e9edef;
+      --tip-ink:  #0d1113;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:    #0b0d0e;
+    --surface:  #16191b;
+    --ink:      #ffffff;
+    --ink-2:    #bcc4ca;
+    --muted:    #8b939a;
+    --grid:     #272b2e;
+    --axis:     #3a4044;
+    --rule:     rgba(255,255,255,0.11);
+    --s1:       #3987e5;
+    --s1-soft:  rgba(57,135,229,0.18);
+    --s2:       #d95926;
+    --s2-soft:  rgba(217,89,38,0.18);
+    --critical: #e05c5c;
+    --warning:  #fab219;
+    --weekend:  rgba(255,255,255,0.05);
+    --tip-bg:   #e9edef;
+    --tip-ink:  #0d1113;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--ink);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+  }
+
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    font-weight: 750;
+    margin: 10px 0 0;
+    text-wrap: balance;
+  }
+
+  .lede {
+    margin: 14px 0 0;
+    max-width: 62ch;
+    font-size: 17px;
+    color: var(--ink-2);
+  }
+
+  h2 {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: 0.01em;
+  }
+
+  p { margin: 0; }
+
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .note {
+    max-width: 68ch;
+    color: var(--ink-2);
+    font-size: 15px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 22px 22px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px;
+  }
+
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tile .k {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .tile .v {
+    font-size: 30px;
+    font-weight: 730;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .tile .s {
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    align-items: center;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .swatch {
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+    display: inline-block;
+  }
+
+  .swatch.box { width: 13px; height: 13px; border-radius: 3px; }
+
+  .chart-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .chart-head .unit {
+    font-size: 12.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .plot { position: relative; }
+
+  .plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .axis-line { stroke: var(--axis); stroke-width: 1; }
+  .tick {
+    fill: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .dlabel {
+    fill: var(--ink-2);
+    font-size: 12px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--tip-bg);
+    color: var(--tip-ink);
+    border-radius: 7px;
+    padding: 8px 11px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 90ms linear;
+    z-index: 5;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+  }
+  .tip.on { opacity: 1; }
+  .tip b { font-weight: 720; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tip { transition: none; }
+  }
+
+  .facets {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  @media (min-width: 800px) {
+    .facets.two { grid-template-columns: 1fr 1fr; }
+  }
+
+  .tablewrap { overflow-x: auto; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    min-width: 520px;
+  }
+
+  th, td {
+    text-align: right;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+
+  th {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--axis);
+  }
+
+  th:first-child, td:first-child { text-align: left; }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  .we td { background: var(--weekend); }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid currentColor;
+  }
+  .pill.hi { color: var(--critical); }
+  .pill.lo { color: var(--muted); }
+
+  .findings {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .finding {
+    display: grid;
+    grid-template-columns: 76px 1fr;
+    gap: 20px;
+    padding: 18px 0;
+    border-top: 1px solid var(--rule);
+    align-items: start;
+  }
+  .finding:last-child { border-bottom: 1px solid var(--rule); }
+
+  .finding .tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-top: 3px;
+  }
+
+  .finding p { color: var(--ink-2); font-size: 15px; }
+  .finding strong { color: var(--ink); font-weight: 700; }
+
+  .caveat {
+    border-left: 3px solid var(--warning);
+    padding: 4px 0 4px 16px;
+    color: var(--ink-2);
+    font-size: 15px;
+    max-width: 68ch;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  code {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.9em;
+    background: var(--weekend);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+    color: var(--muted);
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">TOC850 · 측정데이터 분석</p>
+    <h1>두 지점 모두 하루 주기가 있다. 크기가 다를 뿐이다</h1>
+    <p class="lede">
+      두 지점이 동시에 가동된 <b>2026-08-05 ~ 08-13</b>, 15분 간격 1,482건을 분석했다.
+      말씀하신 1일 주기는 <b>양쪽 모두에 실재한다.</b> 신기는 진폭이 21배로 압도적이고,
+      점촌은 진폭이 작아 원신호에서는 잘 안 보이지만 <b>추세를 걷어내면 위상이 신기보다 정확하다</b> —
+      7일 내내 오전 10시경에 최저점을 찍는다.
+    </p>
+  </header>
+
+  <section>
+    <div class="cards">
+      <div class="tile">
+        <span class="k">신기 · 유입수 일변동</span>
+        <span class="v" style="color:var(--s2)">21.6배</span>
+        <span class="s">최고 12시 992 / 최저 03시 46 mg/L</span>
+      </div>
+      <div class="tile">
+        <span class="k">점촌 · 원수 일변동</span>
+        <span class="v" style="color:var(--s1)">1.65배</span>
+        <span class="s">최고 16시 78 / 최저 09시 47 mg/L</span>
+      </div>
+      <div class="tile">
+        <span class="k">신기 · 최저점 시각 집중도</span>
+        <span class="v" style="color:var(--s2)">R 0.86</span>
+        <span class="s">7일 평균 00.7시 · 주말엔 파형 소멸</span>
+      </div>
+      <div class="tile">
+        <span class="k">점촌 · 최저점 시각 집중도</span>
+        <span class="v" style="color:var(--s1)">R 0.94</span>
+        <span class="s">7일 평균 09.9시 · 주말에도 유지</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="chart-head">
+      <h2>시간대별 평균 — 하루의 모양</h2>
+      <span class="unit">각 지점 전체평균 = 100%</span>
+    </div>
+    <p class="note">
+      농도 자릿수가 10배 가까이 달라 같은 축에 겹칠 수 없으므로, 각 지점의 자기 평균을 100%로 두고
+      모양만 비교한다. 절대값은 선 위에 커서를 올리면 함께 나온다.
+    </p>
+    <div class="card">
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--s1)"></i>점촌 원수</span>
+        <span><i class="swatch" style="background:var(--s2)"></i>신기 유입수</span>
+      </div>
+      <div class="plot" id="p-hourly"></div>
+    </div>
+    <p class="note">
+      신기는 05시에 깨어나 07~18시 내내 평균의 1.6~2.0배를 유지하다 19시부터 급락해
+      심야에는 평균의 10% 아래로 떨어진다. <b>주간(08–18시)이 야간(22–04시)의 평균 16배</b>다.
+      점촌은 진폭이 ±20% 안쪽이라 눈에 잘 띄지 않지만, <b>곡선 자체는 흐트러짐 없이 매끈하다</b> —
+      08~09시 골, 저녁 마루가 매일 같은 자리에 온다. 위상이 신기와 반대일 뿐 주기가 없는 것이 아니다.
+      다음 장에서 이 점을 검정한다.
+    </p>
+  </section>
+
+  <section>
+    <h2>9일간 실측 추이</h2>
+    <p class="note">
+      회색 띠는 주말(8/8 토, 8/9 일)이다. 신기는 이 두 칸에서 신호가 통째로 사라진다.
+      점촌은 같은 자리에서 아무 일도 일어나지 않는다.
+    </p>
+    <div class="facets">
+      <div class="card">
+        <div class="chart-head">
+          <h3 style="color:var(--s2)">신기폐수처리장 · 유입수</h3>
+          <span class="unit">mg/L · 희석 ×20</span>
+        </div>
+        <div class="plot" id="p-ts-shingi"></div>
+      </div>
+      <div class="card">
+        <div class="chart-head">
+          <h3 style="color:var(--s1)">점촌하수처리장 · 원수</h3>
+          <span class="unit">mg/L · 희석 ×5</span>
+        </div>
+        <div class="plot" id="p-ts-jeomchon"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="chart-head">
+      <h2>요일별 평균 — 주기의 정체</h2>
+      <span class="unit">mg/L · 각 지점 자체 축</span>
+    </div>
+    <p class="note">
+      신기의 주기가 24시간짜리 자연 리듬이었다면 토·일에도 같은 산이 서야 한다. 그렇지 않다.
+      토·일은 평일의 1/9로 주저앉는다 — <b>주 5일 조업하는 사업장의 폐수</b>라는 뜻이다.
+      실제 주기는 24시간이 아니라 <b>168시간(1주)</b>이다.
+    </p>
+    <div class="facets two">
+      <div class="card">
+        <h3 style="color:var(--s2)">신기 유입수</h3>
+        <div class="plot" id="p-wd-shingi"></div>
+      </div>
+      <div class="card">
+        <h3 style="color:var(--s1)">점촌 원수</h3>
+        <div class="plot" id="p-wd-jeomchon"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>추세를 걷어내면 — 점촌의 일주기</h2>
+    <p class="note">
+      점촌의 원신호 자기상관은 24시간에서 r = 0.14에 그친다. 그런데 이 값은 <b>주기의 부재가 아니라
+      느린 추세에 묻힌 결과</b>다. 점촌은 9일에 걸쳐 기저 농도가 38 mg/L 폭으로 흘렀고, 일주기 진폭이
+      33 mg/L라 그 흐름에 가려진다. 24시간 이동평균을 빼서 추세를 제거하고 다시 본다.
+    </p>
+
+    <div class="cards">
+      <div class="tile">
+        <span class="k">점촌 · 24h 자기상관</span>
+        <span class="v" style="color:var(--s1)">0.14 → 0.19</span>
+        <span class="s">12시간은 −0.17로 내려감 (파형의 증거)</span>
+      </div>
+      <div class="tile">
+        <span class="k">점촌 · 일주기 진폭</span>
+        <span class="v" style="color:var(--s1)">33 mg/L</span>
+        <span class="s">평균 66.6의 50% · 추세 변동폭 38</span>
+      </div>
+      <div class="tile">
+        <span class="k">신기 · 24h 자기상관</span>
+        <span class="v" style="color:var(--s2)">0.50 → 0.58</span>
+        <span class="s">12시간 −0.72 · 36시간 −0.46</span>
+      </div>
+      <div class="tile">
+        <span class="k">신기 · 일주기 진폭</span>
+        <span class="v" style="color:var(--s2)">958 mg/L</span>
+        <span class="s">점촌의 29배</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="chart-head">
+        <h3>일별 편차 곡선을 7일치 겹친 것</h3>
+        <span class="unit">24시간 이동평균으로부터의 편차, mg/L</span>
+      </div>
+      <p class="note">
+        하루치 곡선 7장을 같은 시간축 위에 포개 놓았다. 주기가 실재하면 선들이 같은 자리에서
+        겹치고, 없으면 흩어진다. 굵은 선은 7일 평균, 세로 점선은 최저점의 평균 시각이다.
+      </p>
+      <div class="facets two">
+        <div>
+          <h3 style="color:var(--s1)">점촌 원수</h3>
+          <div class="plot" id="p-ov-jeomchon"></div>
+        </div>
+        <div>
+          <h3 style="color:var(--s2)">신기 유입수</h3>
+          <div class="plot" id="p-ov-shingi"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="note">
+      결정적인 것은 <b>최저점이 찍히는 시각</b>이다. 점촌은 7일 동안 08:12 · 09:00 · 09:00 · 09:30 ·
+      09:48 · 11:48 · 12:00 — 원형 집중도 <b>R = 0.94</b>다(1이면 매일 같은 시각, 0이면 무작위).
+      <b>신기의 R = 0.86보다 오히려 높다.</b> 진폭은 작아도 시계처럼 정확한 주기가 있다는 뜻이다.
+    </p>
+
+    <div class="card">
+      <div class="chart-head">
+        <h3>주기 성분 분해</h3>
+        <span class="unit">주기별 신호 비중 · %</span>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--s1)"></i>점촌 원수</span>
+        <span><i class="swatch" style="background:var(--s2)"></i>신기 유입수</span>
+      </div>
+      <div class="plot" id="p-pgram"></div>
+    </div>
+    <p class="note">
+      신기는 24.4시간 성분 하나가 전체의 <b>41%</b>를 차지한다. 점촌도 봉우리가 <b>22~25시간대</b>에
+      몰려 있고 그 일대가 약 44%다. 9일 자료로는 주파수 분해능이 거칠어 봉우리가 24시간 정각에
+      정확히 서지는 않지만, 두 지점 모두 지배 성분이 하루 근방이라는 것은 분명하다.
+    </p>
+
+    <div class="card">
+      <div class="chart-head">
+        <h3>추세 제거 후 자기상관</h3>
+        <span class="unit">시차별 상관계수 r</span>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--s1)"></i>점촌 원수</span>
+        <span><i class="swatch" style="background:var(--s2)"></i>신기 유입수</span>
+      </div>
+      <div class="plot" id="p-acf"></div>
+    </div>
+    <p class="note">
+      두 지점 모두 <b>12시간에서 음, 24시간에서 양, 36시간에서 다시 음</b>으로 넘어간다.
+      하루 주기 파형의 표준적인 서명이다. 점촌의 값이 작은 것은 주기가 약해서가 아니라
+      매 사이클의 모양이 신기만큼 판박이가 아니기 때문이며, 주기의 유무와는 다른 문제다.
+    </p>
+  </section>
+
+  <section>
+    <h2>점촌의 100 초과 — 헌팅인가, 실제 부하인가</h2>
+    <p class="note">
+      현장에서 "유입수가 100을 넘는다고 생각해 본 적이 없다"는 이야기가 나왔다.
+      9일간 100 mg/L 이상은 표본 22건(3.1%), 사건으로 묶으면 5건이다.
+      그런데 이 5건은 <b>모양이 두 종류로 확연히 갈린다.</b>
+    </p>
+
+    <div class="card">
+      <div class="chart-head">
+        <h3>피크 시각을 0으로 맞춰 겹친 것</h3>
+        <span class="unit">가로축 = 피크로부터의 시간 · mg/L</span>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--s1)"></i>추세형 — 여러 표본에 걸쳐 오르고 내린다</span>
+        <span><i class="swatch" style="background:var(--muted)"></i>단일표본형 — 한 점만 튀고 곧바로 복귀</span>
+      </div>
+      <div class="plot" id="p-events"></div>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>사건</th><th>유형</th><th>피크</th><th>발치</th>
+          <th>상승 시간</th><th>상승 속도</th><th>하강 속도</th><th>상승 표본수</th>
+        </tr></thead>
+        <tbody id="t-events"></tbody>
+      </table>
+    </div>
+
+    <p class="note">
+      <b>헌팅이 아니라는 판단은 데이터로 뒷받침된다.</b> 추세형 3건은 상승에 1.0~1.75시간,
+      즉 <b>연속된 2~8개 표본</b>을 쓰며 그 사이 단 한 번도 뒤집히지 않는다(단조 증가).
+      하강도 마찬가지로 매끈하다. 계측기 헌팅이나 기포·이물은 이렇게 움직이지 않는다 —
+      단일표본형 2건이 그 대조군이다. 15분 만에 622 mg/L/h로 치솟았다 곧장 복귀한다.
+    </p>
+
+    <div class="cards">
+      <div class="tile">
+        <span class="k">추세형 상승 속도</span>
+        <span class="v" style="color:var(--s1)">43~88</span>
+        <span class="s">mg/L·h · 2~8개 표본에 걸침</span>
+      </div>
+      <div class="tile">
+        <span class="k">단일표본형 상승 속도</span>
+        <span class="v" style="color:var(--muted)">203~622</span>
+        <span class="s">mg/L·h · 표본 1개 · 즉시 복귀</span>
+      </div>
+      <div class="tile">
+        <span class="k">상승 : 하강 비대칭</span>
+        <span class="v" style="color:var(--s1)">3~7배</span>
+        <span class="s">빠르게 들어오고 천천히 빠진다</span>
+      </div>
+      <div class="tile">
+        <span class="k">피크 시각 집중도</span>
+        <span class="v" style="color:var(--s1)">R 0.89</span>
+        <span class="s">5건 전부 10:57~16:30 · 평균 14.2시</span>
+      </div>
+    </div>
+
+    <h3 style="margin-top:8px">주기가 있는가 — 답은 "아직 모른다", 그러나 무작위도 아니다</h3>
+
+    <p class="note">
+      추세형 3건의 발생 간격은 <b>5.0일, 2.9일</b>이다. 두 값이 다르므로 <b>주기라고 말할 수 없다.</b>
+      사건이 3개뿐이라 어떤 통계도 이 표본 수를 이겨내지 못한다. 여기서 주기를 주장하면
+      그건 데이터가 아니라 희망이다.
+    </p>
+
+    <p class="note">
+      다만 <b>시각은 분명히 잠겨 있다.</b> 5건 모두 10:57~16:30 사이에서 터졌고 평균이 14.2시다.
+      하루 중 이 5.6시간대에 들어 있는 표본은 전체의 26%뿐이므로, 5건이 모두 우연히
+      여기 몰릴 확률은 <b>약 0.03%</b>다. 발생 날짜는 불규칙한데 발생 시각은 규칙적이다 —
+      이것은 "주기"가 아니라 <b>위상 고정</b>이고, 성격이 전혀 다르다.
+    </p>
+
+    <div class="finding" style="border-bottom:1px solid var(--rule)">
+      <div class="tag">해석</div>
+      <p>
+        연속 배출원이라면 농도가 이런 식으로 오르내리지 않는다. <strong>매일은 아니지만 터지면
+        반드시 오후</strong>이고, <strong>빠르게 들어와 천천히 빠지는</strong> 비대칭 파형이다.
+        이 둘을 같이 놓으면 <strong>간헐적인 배치성 유입</strong> — 사람이 시간을 정해 무언가를
+        내보내는 행위 — 이 가장 자연스러운 설명이다. 관로를 타고 오는 동안 퍼지기 때문에
+        하강이 상승보다 느리다.
+      </p>
+    </div>
+
+    <p class="note">
+      유량 자료 없이 원인을 특정하는 것은 이쪽 영역이 아니다. 다만 고객이 확인해 볼 만한 방향은
+      좁힐 수 있다. <b>오후 시간대에 기록이 남는 반입·배출 행위</b>를 대조해 보는 것이다 —
+      분뇨·정화조 수거차량 반입 대장, 관내 사업장의 배치 배출, 펌프장 강제 이송이나 관로 청소 일정.
+      날짜만 맞춰 보면 대조는 몇 분이면 끝난다. 맞아떨어지면 원인이 특정되고,
+      아니어도 후보 하나가 지워진다.
+    </p>
+
+    <div class="caveat">
+      <p><b>이 결론을 굳히려면 자료가 더 필요하다. 기간이 아니라 사건 수가 문제다.</b>
+      9일에 3건이면 한 달을 더 봐도 10건 남짓이다. 간격의 규칙성을 검정하려면 최소 그 정도는 있어야 한다.</p>
+      <p><b>08-13부터 측정 간격이 15분에서 60분으로 바뀌었다</b>(고객 요청 · 증류수 소비 절감).
+      또 08-12 20:00 ~ 08-13 11:02 사이 15시간이 비어 있다.
+      이 조건에서 무엇이 남고 무엇이 사라지는지는 아래에서 실측했다.</p>
+    </div>
+
+    <div class="card">
+      <h3>60분 간격에서도 살아남는 것 — 15분 자료를 솎아 실측</h3>
+      <p class="note">
+        08-05~08-12의 15분 자료(705점)를 60분으로 솎아 냈다. 어느 분(分)에서 시작하느냐에 따라
+        결과가 달라질 수 있으므로 <b>+0 / +15 / +30 / +45분 네 가지 위상을 모두</b> 돌렸다.
+      </p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>판정 대상</th><th>15분 원자료</th><th>60분 · 네 위상 전부</th><th>판정</th></tr></thead>
+          <tbody>
+            <tr><td>일주기 자기상관(24h)</td><td>+0.256</td><td>+0.242 ~ +0.292</td>
+              <td><span class="pill lo">영향 없음</span></td></tr>
+            <tr><td>최저점 시각</td><td>09시</td><td>08~10시</td>
+              <td><span class="pill lo">영향 없음</span></td></tr>
+            <tr><td>일주기 진폭</td><td>30.6</td><td>32.6 ~ 35.0</td>
+              <td><span class="pill lo">영향 없음</span></td></tr>
+            <tr><td>추세형 사건 검출 <b>(연속 2점 규칙)</b></td><td>2건</td><td>4개 위상 모두 2건</td>
+              <td><span class="pill lo">전부 검출</span></td></tr>
+            <tr><td>단일표본 헌팅 오검출 <b>(연속 2점 규칙)</b></td><td>0건</td><td>4개 위상 모두 0건</td>
+              <td><span class="pill lo">전부 걸러짐</span></td></tr>
+            <tr><td>단일표본 헌팅 오검출 <b>(1점 규칙)</b></td><td>2건</td><td>위상에 따라 0~1건</td>
+              <td><span class="pill hi">쓰지 말 것</span></td></tr>
+            <tr><td>상승 속도 · 파형 모양</td><td>2~8점으로 판정</td><td>사건당 2~3점</td>
+              <td><span class="pill hi">정량 불가</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">
+        <b>일주기 분석은 60분에서도 그대로다.</b> 하루 24점이면 24시간 주기를 잡는 데 충분하고,
+        자기상관·위상·진폭 어느 것도 의미 있게 변하지 않았다.
+        <b>사건 검출도 규칙만 바꾸면 유지된다</b> — 모양(단조 증가) 대신
+        <b>지속성(100 초과가 연속 2점 = 최소 1시간)</b>으로 판정하면
+        네 위상 전부에서 추세형 2건을 다 잡고 헌팅 2건을 다 걸렀다.
+        <b>잃는 것은 사건의 크기와 모양을 정량하는 능력 하나</b>다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>일자별 주간 / 야간</h2>
+    <div class="card">
+      <div class="tablewrap" id="t-daynight"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>읽어낸 것</h2>
+    <div class="findings" id="findings"></div>
+  </section>
+
+  <section>
+    <h2>데이터를 믿기 전에 알아야 할 것</h2>
+
+    <div class="caveat">
+      <p><b>점촌에 완전 중복 752건이 있다.</b>
+      2026-07-30 13:09 ~ 08-12 04:00 구간의 측정값이 <code>created_at = 2026-08-11T19:24:44</code>(UTC)에
+      한꺼번에 재적재됐다. 시각·값·희석배수까지 동일한 쌍이 752쌍으로, 업로더가 증분 기준점을 잃고
+      과거 구간을 통째로 재전송한 흔적이다. <code>measure_logs_v2</code>에
+      <code>(Site_ID, Date_Time)</code> 유일 제약이 없어 그대로 쌓였다.</p>
+      <p><b>2026-08-13 삭제 완료.</b> <code>tools/dedupe_measure_logs.py</code> 로
+      값이 완전히 동일한 쌍만 골라 752건을 지웠고(삭제분은 JSON으로 백업), 점촌은 1,607건이 남았다.
+      이 분석의 수치는 삭제 전 이미 중복을 배제하고 계산한 것이라 그대로 유효하다.
+      업로더 쪽 재발 방지는 별도 판단 사항으로 남겨두었다.</p>
+    </div>
+
+    <div class="caveat">
+      <p><b>희석배수 변경은 값에 단차를 남기지 않았다.</b> 점촌은 07-30 13:53부터 ×1 → ×5,
+      신기는 08-05 14:06부터 ×1 → ×20이다. 전환 직전·직후 값을 대조하면
+      <code>95.91(×1) → 99.23(×5)</code>로 이어져 단차가 없다 —
+      <b><code>TOC_Conc</code>는 이미 희석 보정된 값</b>이라는 뜻이다.
+      따라서 배수가 다른 기간끼리도 농도 자체는 비교할 수 있다.
+      다만 배수가 높을수록 분해능과 저농도 정확도가 떨어지므로 미세한 변동은 조심해서 볼 것.</p>
+    </div>
+
+    <div class="caveat">
+      <p><b>점촌의 7월 데이터도 쓸 수 없다.</b> 7/13~7/20 구간은 <b>50.3%가 0.00 mg/L</b>이고
+      0을 뺀 평균이 8.6에 불과하다. 이 구간에서는 주기가 전혀 검출되지 않는데(최저시각 R=0.10),
+      이는 주기가 없다는 뜻이 아니라 <b>계측이 제대로 되지 않았다</b>는 뜻이다.
+      희석 ×1 시운전 기록으로 보이며, 이번 분석은 8월 구간만 사용했다.</p>
+    </div>
+
+    <div class="caveat">
+      <p><b>신기의 7월 데이터는 다른 것이다.</b> 채널명이 <code>effluent</code>(500건, 69.6%가 0.00)이고
+      8월부터 <code>유입수</code>로 바뀐다. 처리수를 보다가 유입수로 옮긴 시운전 기록으로,
+      같은 계열로 이어 붙이면 안 된다. 이번 분석은 8월 <code>유입수</code>만 사용했다.</p>
+    </div>
+
+    <div class="caveat">
+      <p><b>임계치를 경보 기준으로 읽으면 안 된다.</b> 두 지점 모두 경보 기능을 쓰지 않는다.
+      <code>toc_alert_high</code> 의 주의 / 경고 값(점촌 100·200, 신기 1900·2000)은
+      <b>대시보드 차트의 Y축 상한을 잡기 위해 임의로 넣어둔 값</b>이다.
+      실측 분포와 어긋나 보이는 것은 결함이 아니라 용도가 다른 것이다.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>출처 · Supabase <code>measure_logs_v2</code> — 점촌 <code>TOC-260706-01</code> / 신기 <code>TMSTOC-250701-01</code></span>
+    <span>구간 2026-08-05 00:00 ~ 08-13 17:02 · 15분 간격 · 중복 제거 후 점촌 712건, 신기 770건</span>
+    <span>모든 통계는 원본 조회값으로 직접 계산했다. 대시보드 집계를 인용하지 않았다.</span>
+  </footer>
+
+</div>
+
+<script>
+const DATA = __PAYLOAD__;
+const WD = ["월","화","수","목","금","토","일"];
+const NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+
+function makeSvg(host, w, h) {
+  const svg = el("svg", { viewBox: `0 0 ${w} ${h}`, role: "img" });
+  host.appendChild(svg);
+  return svg;
+}
+
+function tipFor(host) {
+  const t = document.createElement("div");
+  t.className = "tip";
+  host.appendChild(t);
+  return t;
+}
+
+function place(tip, host, px, py) {
+  const r = host.getBoundingClientRect();
+  tip.style.left = Math.min(Math.max(px - tip.offsetWidth / 2, 0), r.width - tip.offsetWidth) + "px";
+  tip.style.top = Math.max(py - tip.offsetHeight - 12, 0) + "px";
+}
+
+function niceMax(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  return Math.ceil(v / (p / 2)) * (p / 2);
+}
+
+/* ---------- 시간대별 프로파일 (정규화, 2계열) ---------- */
+function hourlyChart(id) {
+  const host = document.getElementById(id);
+  const W = 1000, H = 340, L = 46, R = 16, T = 16, B = 34;
+  const svg = makeSvg(host, W, H), tip = tipFor(host);
+  const abs = { j: DATA.hourly.jeomchon, s: DATA.hourly.shingi };
+  const mean = k => abs[k].reduce((a, b) => a + b, 0) / 24;
+  const mj = mean("j"), ms = mean("s");
+  const pj = abs.j.map(v => v / mj * 100), ps = abs.s.map(v => v / ms * 100);
+  const ymax = 220;
+  const X = h => L + h * (W - L - R) / 23;
+  const Y = v => T + (H - T - B) * (1 - v / ymax);
+
+  for (let g = 0; g <= 200; g += 50) {
+    el("line", { class: "grid-line", x1: L, x2: W - R, y1: Y(g), y2: Y(g) }, svg);
+    const t = el("text", { class: "tick", x: L - 8, y: Y(g) + 4, "text-anchor": "end" }, svg);
+    t.textContent = g + "%";
+  }
+  el("line", { class: "axis-line", x1: L, x2: W - R, y1: Y(100), y2: Y(100), "stroke-dasharray": "4 4" }, svg);
+
+  for (let h = 0; h < 24; h += 3) {
+    const t = el("text", { class: "tick", x: X(h), y: H - 12, "text-anchor": "middle" }, svg);
+    t.textContent = String(h).padStart(2, "0");
+  }
+
+  const path = p => p.map((v, i) => (i ? "L" : "M") + X(i) + " " + Y(v)).join(" ");
+  el("path", { d: path(pj), fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+  el("path", { d: path(ps), fill: "none", stroke: "var(--s2)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+
+  const dj = el("circle", { r: 4.5, fill: "var(--s1)", stroke: "var(--surface)", "stroke-width": 2, opacity: 0 }, svg);
+  const ds = el("circle", { r: 4.5, fill: "var(--s2)", stroke: "var(--surface)", "stroke-width": 2, opacity: 0 }, svg);
+  const cross = el("line", { class: "axis-line", y1: T, y2: H - B, opacity: 0 }, svg);
+
+  const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" }, svg);
+  hit.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect();
+    const sx = (ev.clientX - r.left) * W / r.width;
+    let h = Math.round((sx - L) / ((W - L - R) / 23));
+    h = Math.max(0, Math.min(23, h));
+    [dj, ds, cross].forEach(n => n.setAttribute("opacity", 1));
+    dj.setAttribute("cx", X(h)); dj.setAttribute("cy", Y(pj[h]));
+    ds.setAttribute("cx", X(h)); ds.setAttribute("cy", Y(ps[h]));
+    cross.setAttribute("x1", X(h)); cross.setAttribute("x2", X(h));
+    tip.innerHTML = `<b>${String(h).padStart(2, "0")}시</b><br>`
+      + `점촌 ${abs.j[h].toFixed(0)} mg/L · ${pj[h].toFixed(0)}%<br>`
+      + `신기 ${abs.s[h].toFixed(0)} mg/L · ${ps[h].toFixed(0)}%`;
+    tip.classList.add("on");
+    place(tip, host, X(h) * r.width / W, Math.min(Y(pj[h]), Y(ps[h])) * r.height / H);
+  });
+  hit.addEventListener("pointerleave", () => {
+    tip.classList.remove("on");
+    [dj, ds, cross].forEach(n => n.setAttribute("opacity", 0));
+  });
+}
+
+/* ---------- 시계열 ---------- */
+function tsChart(id, key, color, soft) {
+  const host = document.getElementById(id);
+  const W = 640, H = 300, L = 52, R = 12, T = 14, B = 34;
+  const svg = makeSvg(host, W, H), tip = tipFor(host);
+  const pts = DATA.ts[key];
+  const t0 = new Date(DATA.t0 + "T00:00:00");
+  const xmax = pts[pts.length - 1][0];
+  const ymax = niceMax(Math.max(...pts.map(p => p[1])));
+  const X = m => L + m * (W - L - R) / xmax;
+  const Y = v => T + (H - T - B) * (1 - v / ymax);
+
+  // 주말 음영 (8/8 토 00:00 ~ 8/10 월 00:00 = day 3~5)
+  el("rect", { x: X(3 * 1440), y: T, width: X(5 * 1440) - X(3 * 1440), height: H - T - B, fill: "var(--weekend)" }, svg);
+  const wl = el("text", { class: "tick", x: (X(3 * 1440) + X(5 * 1440)) / 2, y: T + 14, "text-anchor": "middle" }, svg);
+  wl.textContent = "주말";
+
+  for (let i = 0; i <= 4; i++) {
+    const v = ymax * i / 4;
+    el("line", { class: "grid-line", x1: L, x2: W - R, y1: Y(v), y2: Y(v) }, svg);
+    const t = el("text", { class: "tick", x: L - 8, y: Y(v) + 4, "text-anchor": "end" }, svg);
+    t.textContent = v >= 1000 ? (v / 1000) + "k" : v;
+  }
+  for (let d = 0; d * 1440 <= xmax; d++) {
+    const dd = new Date(t0.getTime() + d * 86400000);
+    const t = el("text", { class: "tick", x: X(d * 1440), y: H - 12, "text-anchor": "middle" }, svg);
+    t.textContent = (dd.getMonth() + 1) + "/" + dd.getDate();
+  }
+
+  const line = pts.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(" ");
+  el("path", { d: line + ` L${X(xmax).toFixed(1)} ${Y(0)} L${X(pts[0][0]).toFixed(1)} ${Y(0)} Z`, fill: soft, stroke: "none" }, svg);
+  el("path", { d: line, fill: "none", stroke: color, "stroke-width": 1.6, "stroke-linejoin": "round" }, svg);
+
+  const dot = el("circle", { r: 4.5, fill: color, stroke: "var(--surface)", "stroke-width": 2, opacity: 0 }, svg);
+  const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" }, svg);
+  hit.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect();
+    const sx = (ev.clientX - r.left) * W / r.width;
+    const m = (sx - L) * xmax / (W - L - R);
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const d = Math.abs(pts[i][0] - m);
+      if (d < bd) { bd = d; best = i; }
+    }
+    const p = pts[best];
+    const when = new Date(t0.getTime() + p[0] * 60000);
+    dot.setAttribute("cx", X(p[0])); dot.setAttribute("cy", Y(p[1])); dot.setAttribute("opacity", 1);
+    tip.innerHTML = `<b>${p[1].toLocaleString()} mg/L</b><br>`
+      + `${when.getMonth() + 1}/${when.getDate()}(${WD[(when.getDay() + 6) % 7]}) `
+      + `${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}`;
+    tip.classList.add("on");
+    place(tip, host, X(p[0]) * r.width / W, Y(p[1]) * r.height / H);
+  });
+  hit.addEventListener("pointerleave", () => { tip.classList.remove("on"); dot.setAttribute("opacity", 0); });
+}
+
+/* ---------- 요일별 막대 ---------- */
+function wdChart(id, key, color) {
+  const host = document.getElementById(id);
+  const W = 520, H = 260, L = 48, R = 12, T = 22, B = 30;
+  const svg = makeSvg(host, W, H), tip = tipFor(host);
+  const v = DATA.weekday[key];
+  const ymax = niceMax(Math.max(...v));
+  const bw = (W - L - R) / 7;
+  const Y = x => T + (H - T - B) * (1 - x / ymax);
+
+  for (let i = 0; i <= 4; i++) {
+    const g = ymax * i / 4;
+    el("line", { class: "grid-line", x1: L, x2: W - R, y1: Y(g), y2: Y(g) }, svg);
+    const t = el("text", { class: "tick", x: L - 8, y: Y(g) + 4, "text-anchor": "end" }, svg);
+    t.textContent = g >= 1000 ? (g / 1000) + "k" : g;
+  }
+  el("line", { class: "axis-line", x1: L, x2: W - R, y1: Y(0), y2: Y(0) }, svg);
+
+  v.forEach((val, i) => {
+    const x = L + i * bw + 5, w = bw - 10, y = Y(val), h = Y(0) - y;
+    const weekend = i >= 5;
+    el("rect", {
+      x, y, width: w, height: Math.max(h, 1), rx: 4,
+      fill: color, opacity: weekend ? 0.42 : 1
+    }, svg);
+    const lb = el("text", { class: "dlabel", x: x + w / 2, y: y - 7, "text-anchor": "middle" }, svg);
+    lb.textContent = Math.round(val).toLocaleString();
+    const tk = el("text", { class: "tick", x: x + w / 2, y: H - 10, "text-anchor": "middle" }, svg);
+    tk.textContent = WD[i];
+    const hit = el("rect", { x: L + i * bw, y: T, width: bw, height: H - T - B, fill: "transparent" }, svg);
+    hit.addEventListener("pointerenter", () => {
+      tip.innerHTML = `<b>${WD[i]}요일 평균 ${val.toLocaleString()} mg/L</b>`
+        + (weekend ? "<br>주말 · 조업 정지 추정" : "");
+      tip.classList.add("on");
+      const r = svg.getBoundingClientRect();
+      place(tip, host, (x + w / 2) * r.width / W, y * r.height / H);
+    });
+    hit.addEventListener("pointerleave", () => tip.classList.remove("on"));
+  });
+}
+
+/* ---------- 일별 편차 곡선 겹치기 ---------- */
+function overlayChart(id, key, color, soft) {
+  const host = document.getElementById(id);
+  const W = 520, H = 300, L = 50, R = 12, T = 14, B = 32;
+  const svg = makeSvg(host, W, H), tip = tipFor(host);
+  const d = DATA.detrend[key];
+  const all = d.daily.flatMap(r => r.v).filter(v => v !== null);
+  const lim = niceMax(Math.max(Math.abs(Math.min(...all)), Math.max(...all)));
+  const X = s => L + s * (W - L - R) / 95;
+  const Y = v => T + (H - T - B) * (1 - (v + lim) / (2 * lim));
+
+  for (let i = -1; i <= 1; i += 0.5) {
+    const g = lim * i;
+    el("line", { class: "grid-line", x1: L, x2: W - R, y1: Y(g), y2: Y(g) }, svg);
+    const t = el("text", { class: "tick", x: L - 8, y: Y(g) + 4, "text-anchor": "end" }, svg);
+    t.textContent = (g > 0 ? "+" : "") + (Math.abs(g) >= 1000 ? (g / 1000) + "k" : Math.round(g));
+  }
+  el("line", { class: "axis-line", x1: L, x2: W - R, y1: Y(0), y2: Y(0) }, svg);
+  for (let h = 0; h < 24; h += 6) {
+    const t = el("text", { class: "tick", x: X(h * 4), y: H - 10, "text-anchor": "middle" }, svg);
+    t.textContent = String(h).padStart(2, "0");
+  }
+
+  const path = v => v.map((y, i) => y === null ? null : (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(y).toFixed(1))
+    .filter(Boolean).join(" ").replace(/^L/, "M");
+  d.daily.forEach(r => {
+    el("path", { d: path(r.v), fill: "none", stroke: color, "stroke-width": 1.2, opacity: 0.34 }, svg);
+  });
+
+  const mean = [];
+  for (let s = 0; s < 96; s++) {
+    const vs = d.daily.map(r => r.v[s]).filter(v => v !== null && v !== undefined);
+    mean.push(vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null);
+  }
+  el("path", { d: path(mean), fill: "none", stroke: color, "stroke-width": 2.8, "stroke-linejoin": "round" }, svg);
+
+  const mx = X(d.minMean * 4);
+  el("line", { x1: mx, x2: mx, y1: T, y2: H - B, stroke: color, "stroke-width": 1.5, "stroke-dasharray": "4 4", opacity: 0.85 }, svg);
+  const lbl = el("text", { class: "dlabel", x: mx + 6, y: T + 12, fill: color }, svg);
+  lbl.textContent = `최저 평균 ${d.minMean.toFixed(1)}시 · R=${d.minR}`;
+
+  const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" }, svg);
+  hit.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect();
+    const sx = (ev.clientX - r.left) * W / r.width;
+    let s = Math.round((sx - L) / ((W - L - R) / 95));
+    s = Math.max(0, Math.min(95, s));
+    const hh = String(Math.floor(s / 4)).padStart(2, "0") + ":" + String((s % 4) * 15).padStart(2, "0");
+    const rows = d.daily.map(r => r.v[s] === null || r.v[s] === undefined ? null
+      : `${r.d}(${r.w}) ${r.v[s] > 0 ? "+" : ""}${Math.round(r.v[s]).toLocaleString()}`).filter(Boolean);
+    tip.innerHTML = `<b>${hh}</b> · 평균 ${mean[s] > 0 ? "+" : ""}${Math.round(mean[s]).toLocaleString()}<br>` + rows.join("<br>");
+    tip.classList.add("on");
+    place(tip, host, X(s) * r.width / W, Y(lim) * r.height / H + 40);
+  });
+  hit.addEventListener("pointerleave", () => tip.classList.remove("on"));
+}
+
+/* ---------- 주기도 ---------- */
+function pgramChart(id) {
+  const host = document.getElementById(id);
+  const W = 1000, H = 300, L = 46, R = 16, T = 16, B = 36;
+  const svg = makeSvg(host, W, H), tip = tipFor(host);
+  const pj = DATA.detrend.jeomchon.pgram, ps = DATA.detrend.shingi.pgram;
+  const ymax = niceMax(Math.max(...pj.map(p => p[1]), ...ps.map(p => p[1])));
+  const lo = 3, hi = 48;
+  const X = p => L + (Math.log(p) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) * (W - L - R);
+  const Y = v => T + (H - T - B) * (1 - v / ymax);
+
+  for (let i = 0; i <= 4; i++) {
+    const g = ymax * i / 4;
+    el("line", { class: "grid-line", x1: L, x2: W - R, y1: Y(g), y2: Y(g) }, svg);
+    const t = el("text", { class: "tick", x: L - 8, y: Y(g) + 4, "text-anchor": "end" }, svg);
+    t.textContent = g.toFixed(0) + "%";
+  }
+  el("line", { class: "axis-line", x1: X(24), x2: X(24), y1: T, y2: H - B, "stroke-dasharray": "3 5" }, svg);
+  const t24 = el("text", { class: "tick", x: X(24), y: T + 2, "text-anchor": "middle" }, svg);
+  t24.textContent = "24시간";
+  [3, 4, 6, 8, 12, 18, 24, 36, 48].forEach(p => {
+    const t = el("text", { class: "tick", x: X(p), y: H - 12, "text-anchor": "middle" }, svg);
+    t.textContent = p + "h";
+  });
+
+  const path = a => a.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(" ");
+  el("path", { d: path(pj), fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+  el("path", { d: path(ps), fill: "none", stroke: "var(--s2)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+
+  [[ps, "var(--s2)", "신기"], [pj, "var(--s1)", "점촌"]].forEach(([a, c, nm]) => {
+    const top = a.reduce((b, p) => p[1] > b[1] ? p : b);
+    el("circle", { cx: X(top[0]), cy: Y(top[1]), r: 5, fill: c, stroke: "var(--surface)", "stroke-width": 2 }, svg);
+    const t = el("text", { class: "dlabel", x: X(top[0]) + 11, y: Y(top[1]) + 4, fill: c }, svg);
+    t.textContent = `${nm} ${top[0].toFixed(1)}h · ${top[1].toFixed(0)}%`;
+  });
+
+  const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" }, svg);
+  hit.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect();
+    const sx = (ev.clientX - r.left) * W / r.width;
+    const p = Math.exp(Math.log(lo) + (sx - L) / (W - L - R) * (Math.log(hi) - Math.log(lo)));
+    const near = a => a.reduce((b, q) => Math.abs(q[0] - p) < Math.abs(b[0] - p) ? q : b);
+    const a = near(pj), b = near(ps);
+    tip.innerHTML = `<b>주기 ${a[0].toFixed(1)}시간</b><br>점촌 ${a[1].toFixed(1)}%<br>신기 ${b[1].toFixed(1)}%`;
+    tip.classList.add("on");
+    place(tip, host, X(a[0]) * r.width / W, Math.min(Y(a[1]), Y(b[1])) * r.height / H);
+  });
+  hit.addEventListener("pointerleave", () => tip.classList.remove("on"));
+}
+
+/* ---------- 자기상관 ---------- */
+function acfChart(id) {
+  const host = document.getElementById(id);
+  const W = 1000, H = 300, L = 46, R = 16, T = 16, B = 36;
+  const svg = makeSvg(host, W, H), tip = tipFor(host);
+  const aj = DATA.detrend.jeomchon.acf, as = DATA.detrend.shingi.acf;
+  const xmax = 72;
+  const X = h => L + h * (W - L - R) / xmax;
+  const Y = r => T + (H - T - B) * (1 - (r + 0.9) / 1.9);
+
+  for (let g = -0.5; g <= 1.001; g += 0.5) {
+    el("line", { class: "grid-line", x1: L, x2: W - R, y1: Y(g), y2: Y(g) }, svg);
+    const t = el("text", { class: "tick", x: L - 8, y: Y(g) + 4, "text-anchor": "end" }, svg);
+    t.textContent = g.toFixed(1);
+  }
+  el("line", { class: "axis-line", x1: L, x2: W - R, y1: Y(0), y2: Y(0) }, svg);
+  [24, 48, 72].forEach(h => {
+    el("line", { class: "axis-line", x1: X(h), x2: X(h), y1: T, y2: H - B, "stroke-dasharray": "3 5" }, svg);
+  });
+  [1, 12, 24, 36, 48, 60, 72].forEach(h => {
+    const t = el("text", { class: "tick", x: X(h), y: H - 12, "text-anchor": "middle" }, svg);
+    t.textContent = h + "h";
+  });
+
+  const path = a => a.map((p, i) => (i ? "L" : "M") + X(p[0]) + " " + Y(p[1])).join(" ");
+  el("path", { d: path(aj), fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+  el("path", { d: path(as), fill: "none", stroke: "var(--s2)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+
+  const mark = (a, color, label) => {
+    const p = a.find(x => x[0] === 24);
+    el("circle", { cx: X(24), cy: Y(p[1]), r: 5, fill: color, stroke: "var(--surface)", "stroke-width": 2 }, svg);
+    const t = el("text", { class: "dlabel", x: X(24) + 12, y: Y(p[1]) + 4 }, svg);
+    t.textContent = label + " r=" + p[1].toFixed(2);
+    t.setAttribute("fill", color);
+  };
+  mark(as, "var(--s2)", "신기 24h");
+  mark(aj, "var(--s1)", "점촌 24h");
+
+  const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent" }, svg);
+  hit.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect();
+    const hx = (ev.clientX - r.left) * W / r.width;
+    const h = (hx - L) * xmax / (W - L - R);
+    const near = arr => arr.reduce((b, p) => Math.abs(p[0] - h) < Math.abs(b[0] - h) ? p : b);
+    const a = near(aj), b = near(as);
+    tip.innerHTML = `<b>시차 ${a[0]}시간</b><br>점촌 r=${a[1].toFixed(2)}<br>신기 r=${b[1].toFixed(2)}`;
+    tip.classList.add("on");
+    place(tip, host, X(a[0]) * r.width / W, Math.min(Y(a[1]), Y(b[1])) * r.height / H);
+  });
+  hit.addEventListener("pointerleave", () => tip.classList.remove("on"));
+}
+
+/* ---------- 일자별 표 ---------- */
+function dayTable(id) {
+  const j = {}, s = {};
+  DATA.daynight.jeomchon.forEach(r => j[r.d] = r);
+  DATA.daynight.shingi.forEach(r => s[r.d] = r);
+  const days = [...new Set([...Object.keys(j), ...Object.keys(s)])].sort();
+  let html = `<table><thead><tr>
+    <th>날짜</th><th>요일</th>
+    <th>점촌 주간</th><th>점촌 야간</th><th>주/야</th>
+    <th>신기 주간</th><th>신기 야간</th><th>주/야</th>
+  </tr></thead><tbody>`;
+  for (const d of days) {
+    const a = j[d], b = s[d];
+    const w = (a || b).w;
+    const we = w === "토" || w === "일";
+    const cell = (r, k) => r ? r[k].toLocaleString() : "—";
+    const pill = r => r ? `<span class="pill ${r.ratio >= 3 ? "hi" : "lo"}">${r.ratio}배</span>` : "—";
+    html += `<tr class="${we ? "we" : ""}"><td>${d}</td><td>${w}</td>
+      <td>${cell(a, "day")}</td><td>${cell(a, "night")}</td><td>${pill(a)}</td>
+      <td>${cell(b, "day")}</td><td>${cell(b, "night")}</td><td>${pill(b)}</td></tr>`;
+  }
+  html += `</tbody></table>`;
+  document.getElementById(id).innerHTML = html;
+}
+
+/* ---------- 결론 ---------- */
+const FINDINGS = [
+  ["신기", "<strong>일주기의 정체는 조업 시간표다.</strong> 05시 상승 → 07~18시 고농도 → 19시 급락 → 심야 바닥. 주간이 야간의 16배이며 토·일에는 파형 자체가 사라진다. 진폭은 크지만 주말마다 끊기므로 <strong>순수한 24시간 주기가 아니라 168시간(1주) 주기</strong>다."],
+  ["점촌", "<strong>일주기가 있다. 진폭이 작아 원신호에서 안 보였을 뿐이다.</strong> 추세를 제거하면 24시간 자기상관이 0.19로 오르고 12시간이 −0.17로 내려간다. 최저점이 7일 내내 오전 10시 근방(R=0.94)에 찍히는데, 이 위상 안정성은 신기보다 높다. 진폭 33 mg/L는 평균의 절반이라 결코 작지 않다."],
+  ["차이", "두 지점의 주기는 <strong>성격이 다르다.</strong> 신기는 켜고 끄는 사각파에 가깝고 주말에 멈춘다. 점촌은 진폭이 작고 매끈한 정현파에 가까우며 주말에도 유지된다 — 조업이 아니라 생활 리듬이 만드는 패턴의 모양이다."],
+  ["변동성", "같은 기간 변동계수(CV)가 점촌 0.27, 신기 1.04로 <strong>네 배 가까이 차이</strong>난다. 신기는 처리 부하가 하루 안에서 크게 요동치므로, 일평균만 보는 운전 판단은 위험하다."],
+  ["운전", "신기는 조업 시간대에만 부하가 걸리므로 <strong>일평균 한 숫자로는 운전 상태를 판단할 수 없다.</strong> 07~18시 평균과 심야 평균을 따로 보는 편이 실제에 가깝다. 점촌은 반대로 하루 종일 완만해 일평균이 대표성을 갖는다."],
+  ["데이터", "점촌 중복 752건은 삭제했다. 다만 <strong>희석배수 변경 지점(점촌 7/30, 신기 8/5)은 대시보드에서 걸러지지 않으므로</strong>, 변경 전후를 걸친 기간의 평균을 그대로 인용하면 실제와 어긋난다."],
+  ["다음", "9일은 결론을 굳히기엔 짧다 — 주말이 두 번밖에 들어가지 않아 주파수 분해능이 거칠고, 주기 봉우리가 24시간 정각에 정확히 서지 못한다. <strong>4주 이상</strong> 쌓이면 24시간과 168시간 성분을 깨끗하게 분리할 수 있다. 점촌은 여기에 <strong>유량 자료</strong>가 붙어야 오전 10시 골이 실제 부하 감소인지 유량 희석인지 갈린다."],
+];
+
+document.getElementById("findings").innerHTML = FINDINGS.map(
+  ([tag, body]) => `<div class="finding"><div class="tag">${tag}</div><p>${body}</p></div>`
+).join("");
+
+/* ---------- 100 초과 사건 겹치기 ---------- */
+function eventChart(id) {
+  const host = document.getElementById(id);
+  const W = 1000, H = 340, L = 46, R = 120, T = 16, B = 36;
+  const svg = makeSvg(host, W, H), tip = tipFor(host);
+  const ev = DATA.events;
+  const ymax = niceMax(Math.max(...ev.flatMap(e => e.pts.map(p => p[1]))));
+  const xlo = -3, xhi = 5;
+  const X = h => L + (h - xlo) / (xhi - xlo) * (W - L - R);
+  const Y = v => T + (H - T - B) * (1 - v / ymax);
+
+  for (let i = 0; i <= 4; i++) {
+    const g = ymax * i / 4;
+    el("line", { class: "grid-line", x1: L, x2: W - R, y1: Y(g), y2: Y(g) }, svg);
+    const t = el("text", { class: "tick", x: L - 8, y: Y(g) + 4, "text-anchor": "end" }, svg);
+    t.textContent = g;
+  }
+  el("line", { class: "axis-line", x1: X(0), x2: X(0), y1: T, y2: H - B, "stroke-dasharray": "3 5" }, svg);
+  for (let h = xlo; h <= xhi; h++) {
+    const t = el("text", { class: "tick", x: X(h), y: H - 12, "text-anchor": "middle" }, svg);
+    t.textContent = (h > 0 ? "+" : "") + h + "h";
+  }
+  el("line", { class: "axis-line", x1: L, x2: W - R, y1: Y(100), y2: Y(100), "stroke-dasharray": "2 4" }, svg);
+  const th = el("text", { class: "tick", x: W - R + 6, y: Y(100) + 4 }, svg);
+  th.textContent = "100";
+
+  const labels = [];
+  ev.forEach(e => {
+    const trend = e.kind === "trend";
+    const color = trend ? "var(--s1)" : "var(--muted)";
+    const pts = e.pts.filter(p => p[0] >= xlo && p[0] <= xhi);
+    const d = pts.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(" ");
+    el("path", {
+      d, fill: "none", stroke: color, "stroke-width": trend ? 2 : 1.6,
+      "stroke-linejoin": "round", "stroke-dasharray": trend ? "" : "5 4",
+      opacity: trend ? 0.92 : 0.75
+    }, svg);
+    pts.forEach(p => {
+      const c = el("circle", { cx: X(p[0]), cy: Y(p[1]), r: trend ? 3.2 : 2.6,
+        fill: color, stroke: "var(--surface)", "stroke-width": 1.4 }, svg);
+      c.addEventListener("pointerenter", () => {
+        tip.innerHTML = "<b>" + e.label + "</b><br>" + p[1].toFixed(1) + " mg/L<br>피크 "
+          + (p[0] > 0 ? "+" : "") + p[0].toFixed(2) + "h";
+        tip.classList.add("on");
+        const r = svg.getBoundingClientRect();
+        place(tip, host, X(p[0]) * r.width / W, Y(p[1]) * r.height / H);
+      });
+      c.addEventListener("pointerleave", () => tip.classList.remove("on"));
+    });
+    labels.push({ y: Y(e.peak) + 4, text: e.label, color });
+  });
+
+  // 라벨 겹침 방지 — 위에서 아래로 최소 19px 간격 확보
+  labels.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) {
+    if (labels[i].y < labels[i - 1].y + 19) labels[i].y = labels[i - 1].y + 19;
+  }
+  labels.forEach(l => {
+    const t = el("text", { class: "dlabel", x: W - R + 6, y: l.y, fill: l.color }, svg);
+    t.textContent = l.text;
+  });
+}
+
+function eventTable(id) {
+  document.getElementById(id).innerHTML = DATA.events.map(e =>
+    "<tr><td>" + e.label + "</td>"
+    + "<td><span class=\"pill " + (e.kind === "trend" ? "hi" : "lo") + "\">"
+    + (e.kind === "trend" ? "추세형" : "단일표본") + "</span></td>"
+    + "<td>" + e.peak.toFixed(1) + "</td><td>" + e.foot.toFixed(1) + "</td>"
+    + "<td>" + e.riseH + "h</td><td>" + e.riseRate + "</td>"
+    + "<td>" + e.fallRate + "</td><td>" + e.nRise + "</td></tr>").join("");
+}
+
+hourlyChart("p-hourly");
+eventChart("p-events");
+eventTable("t-events");
+overlayChart("p-ov-jeomchon", "jeomchon", "var(--s1)");
+overlayChart("p-ov-shingi", "shingi", "var(--s2)");
+pgramChart("p-pgram");
+tsChart("p-ts-shingi", "shingi", "var(--s2)", "var(--s2-soft)");
+tsChart("p-ts-jeomchon", "jeomchon", "var(--s1)", "var(--s1-soft)");
+wdChart("p-wd-shingi", "shingi", "var(--s2)");
+wdChart("p-wd-jeomchon", "jeomchon", "var(--s1)");
+acfChart("p-acf");
+dayTable("t-daynight");
+</script>
