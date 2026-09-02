@@ -1,7 +1,16 @@
-"""공용 자료 — 실험실 대조값과 계측기 원자료 로더.
+"""공용 자료 — 실험실 대조값, 계측기 원자료 로더, 계측기 공식.
 
-실험실 데이터는 점촌하수처리장에서 넘겨받은 수기 기록이다(원수 채수, TOC mg/L).
-값이 None 인 날은 채수만 하고 분석값이 오지 않은 날.
+계측기 적용 순서 (현장 확인, 2026-09-02):
+
+    TOC_Conc = ( (MSIG - ICPT) / SLOP * FACT + OFST ) * DilutionFactor
+
+FACT/OFST 가 먼저 걸리고 희석배수가 마지막에 곱해진다. 즉 FACT/OFST 는
+**희석 전(검출기) 스케일**에서 동작한다. 그래서 보정계수를 구할 때는
+계측기 표시값과 실험실값을 둘 다 DF 로 나눠 같은 스케일로 맞춰야 한다.
+
+주의: FACT=1 / OFST=0 인 상태에서는 이 식과
+`(MSIG-ICPT)/SLOP * DF * FACT + OFST` 가 대수적으로 같다.
+저장된 자료만으로는 두 순서를 구분할 수 없다 (verify_formula.py 참조).
 """
 import datetime as dt
 import json
@@ -13,7 +22,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = r"D:\antigravity\db_upload_and_dashboard"
 
-# (채취시각, 실험실 TOC mg/L)
+# (채취시각, 실험실 TOC mg/L) — 점촌하수처리장 원수 수기 기록.
+# None 은 채수만 하고 분석값이 오지 않은 날.
 LAB = [
     ("2026-08-13 14:25", 70.6),
     ("2026-08-14 09:07", 18.7),
@@ -36,6 +46,20 @@ LAB = [
 ]
 
 
+def raw(r):
+    """희석 전(검출기) 스케일 값 = (MSIG - ICPT) / SLOP.
+
+    FACT/OFST 가 실제로 곱해지고 더해지는 대상이 이 값이다.
+    MSIG 에서 직접 계산하므로 DF 가 중간에 바뀌어도 안전하다.
+    """
+    return (r["MSIG"] - r["ICPT"]) / r["SLOP"]
+
+
+def display(r, fact, ofst):
+    """FACT/OFST 를 넣었을 때 계측기가 표시할 값."""
+    return (raw(r) * fact + ofst) * r["DilutionFactor"]
+
+
 def config():
     """Supabase 접속정보. 자격증명은 저장소에 넣지 않고 여기서만 읽는다."""
     with open(os.path.join(ROOT, "uploader_config.json"), encoding="utf-8") as f:
@@ -56,4 +80,4 @@ def load(name="data.json"):
 
 def save(obj, name):
     with open(os.path.join(HERE, name), "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
+        json.dump(obj, f, ensure_ascii=False, indent=1)
