@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Slider from 'rc-slider';
 import 'rc-slider/assets/index.css';
 import {
@@ -93,38 +93,72 @@ const toDatetimeLocal = (date) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
-// PostgREST용 날짜 범위 쿼리 파라미터 빌더
-const getDateFilterParams = (range, start, end) => {
+// 조회 구간의 경계값(DB 포맷 문자열)을 계산한다.
+// 파라미터 문자열이 아닌 경계값 자체를 돌려주므로, 증분 로드 시 클라이언트에서
+// 창(window) 밖으로 밀려난 과거 데이터를 잘라내는 데 재사용할 수 있다.
+const getDateBounds = (range, start, end) => {
   const pad = (n) => String(n).padStart(2, '0');
   const formatDbDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
   if (range === '24h') {
-    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    return `&Date_Time=gte.${encodeURIComponent(formatDbDate(d))}`;
+    return { gte: formatDbDate(new Date(Date.now() - 24 * 60 * 60 * 1000)) };
   }
   if (range === '7d') {
-    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    return `&Date_Time=gte.${encodeURIComponent(formatDbDate(d))}`;
+    return { gte: formatDbDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)) };
   }
   if (range === '30d') {
-    const d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    return `&Date_Time=gte.${encodeURIComponent(formatDbDate(d))}`;
+    return { gte: formatDbDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) };
   }
   if (range === 'custom') {
-    let filter = '';
+    const bounds = {};
     if (start) {
       const dStart = new Date(start);
-      const startStr = `${dStart.getFullYear()}-${pad(dStart.getMonth() + 1)}-${pad(dStart.getDate())} ${pad(dStart.getHours())}:${pad(dStart.getMinutes())}:00`;
-      filter += `&Date_Time=gte.${encodeURIComponent(startStr)}`;
+      bounds.gte = `${dStart.getFullYear()}-${pad(dStart.getMonth() + 1)}-${pad(dStart.getDate())} ${pad(dStart.getHours())}:${pad(dStart.getMinutes())}:00`;
     }
     if (end) {
       const dEnd = new Date(end);
-      const endStr = `${dEnd.getFullYear()}-${pad(dEnd.getMonth() + 1)}-${pad(dEnd.getDate())} ${pad(dEnd.getHours())}:${pad(dEnd.getMinutes())}:59`;
-      filter += `&Date_Time=lte.${encodeURIComponent(endStr)}`;
+      bounds.lte = `${dEnd.getFullYear()}-${pad(dEnd.getMonth() + 1)}-${pad(dEnd.getDate())} ${pad(dEnd.getHours())}:${pad(dEnd.getMinutes())}:59`;
     }
-    return filter;
+    return bounds;
   }
-  return ''; // 'all' 또는 'All'
+  return {}; // 'all' 또는 'All'
+};
+
+// 경계값 → PostgREST 쿼리 파라미터
+const buildDateFilterParams = (bounds) => {
+  let filter = '';
+  if (bounds.gte) filter += `&Date_Time=gte.${encodeURIComponent(bounds.gte)}`;
+  if (bounds.lte) filter += `&Date_Time=lte.${encodeURIComponent(bounds.lte)}`;
+  return filter;
+};
+
+// PostgREST용 날짜 범위 쿼리 파라미터 빌더
+const getDateFilterParams = (range, start, end) => buildDateFilterParams(getDateBounds(range, start, end));
+
+// 측정 데이터에서 실제로 쓰는 컬럼만 조회한다 (select=* 금지 — 전송량 절감).
+// normalizeData()가 취하는 필드와 반드시 일치시킬 것.
+const MEASURE_SELECT_COLUMNS = [
+  'Date_Time', 'Device_ID', 'Channel', 'Channel_Name', 'TOC_Conc',
+  'DilutionFactor', 'MSIG', 'SLOP', 'ICPT', 'FACT', 'OFST', 'MAXR', 'Add_note'
+].join(',');
+
+// 측정 행의 고유 키 (증분 로드 시 중복 제거용)
+const measureRowKey = (r) => `${r.Date_Time}|${r.Device_ID}|${r.Channel}`;
+
+// 기존 데이터에 증분 수신분을 병합한다.
+// - 동일 키는 새로 받은 행으로 대체
+// - windowStart(구간 시작)보다 오래된 행은 제거 → 슬라이딩 구간에서 무한 누적 방지
+const mergeMeasureRows = (prev, incoming, windowStart) => {
+  const map = new Map();
+  prev.forEach(r => map.set(measureRowKey(r), r));
+  incoming.forEach(r => map.set(measureRowKey(r), r));
+
+  let merged = Array.from(map.values());
+  if (windowStart) {
+    const cutoff = parseDate(windowStart).getTime();
+    merged = merged.filter(r => parseDate(r.Date_Time).getTime() >= cutoff);
+  }
+  return merged.sort((a, b) => parseDate(a.Date_Time) - parseDate(b.Date_Time));
 };
 
 function App() {
@@ -255,6 +289,12 @@ function App() {
   const [simChannel, setSimChannel] = useState('3');
   const [simToc, setSimToc] = useState('');
   const [simIsSending, setSimIsSending] = useState(false);
+
+  // 증분 로드 상태 (리렌더를 유발하지 않아야 하므로 ref로 관리)
+  const queryKeyRef = useRef('');   // 직전 조회 조건 식별자
+  const latestTsRef = useRef('');   // 마지막으로 수신한 Date_Time
+  const dataRef = useRef([]);       // 현재 보유 중인 측정 데이터
+  const isFetchingRef = useRef(false); // 요청 진행 중 여부
 
   // =========================================================================
   // site_config 로드 함수 추가
@@ -394,32 +434,55 @@ function App() {
 
   // =========================================================================
   // Supabase 페이지네이션 Fetch — 선택한 날짜 구간만 서버사이드 쿼리
+  //
+  // 조회 조건이 직전과 동일하면 "마지막 수신 시각 이후" 데이터만 증분으로 받아
+  // 기존 결과에 병합한다. 5분 주기 폴링이 매번 전 구간을 다시 내려받으면서
+  // Supabase 전송량(egress)을 소진시키던 문제를 막기 위한 것.
   // =========================================================================
   const loadData = useCallback(async () => {
     if (!hasSiteParam) return;
     if (siteConfig.loading) return; // 설정 정보 로드 완료 시까지 대기
+    if (isFetchingRef.current) return; // 이전 요청이 진행 중이면 중복 실행 방지
 
-    setLoading(true);
+    const baseUrl = SUPABASE_URL.replace(/\/$/, '');
+    const targetTable = SUPABASE_MEASUREMENT_TABLE;
+    const endpoint = baseUrl.includes('/rest/v1')
+      ? `${baseUrl}/${targetTable}`
+      : `${baseUrl}/rest/v1/${targetTable}`;
+
+    // 서버 사이드 날짜 구간
+    const bounds = getDateBounds(timeRange, customStart, customEnd);
+
+    // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
+    const singleTableFilter = deviceIdParam
+      ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}`
+      : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`;
+
+    // 조회 조건 식별자 — 하나라도 바뀌면 증분이 아닌 전체 재조회
+    const queryKey = [targetTable, singleTableFilter, timeRange, customStart, customEnd, isAdminParam].join('|');
+    const isIncremental = queryKey === queryKeyRef.current
+      && Boolean(latestTsRef.current)
+      && dataRef.current.length > 0;
+
+    // 증분 구간: 마지막 수신 시각 이후(동일 시각 행 누락 방지를 위해 gte + 중복 제거)
+    const filterParams = isIncremental
+      ? buildDateFilterParams({ gte: latestTsRef.current, lte: bounds.lte })
+      : buildDateFilterParams(bounds);
+
+    isFetchingRef.current = true;
+    if (!isIncremental) {
+      // 조회 조건이 바뀐 전체 재조회 — 이전 조건에서 남은 기준점을 반드시 버린다.
+      // (예: 24시간 → 과거 구간 직접 지정. 기준점이 새 구간보다 미래로 남으면
+      //  이후 증분 조회가 아무것도 받지 못한다.)
+      latestTsRef.current = '';
+      setLoading(true);
+      setLoadProgress('연결 중...');
+    }
     setError(null);
-    setLoadProgress('연결 중...');
     try {
       if (!SUPABASE_URL || !SUPABASE_KEY) {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
       }
-
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const targetTable = SUPABASE_MEASUREMENT_TABLE;
-      const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${targetTable}`
-        : `${baseUrl}/rest/v1/${targetTable}`;
-
-      // 서버 사이드 날짜 쿼리 파라미터 빌드
-      const filterParams = getDateFilterParams(timeRange, customStart, customEnd);
-      
-      // singleTableFilter: deviceIdParam이 있으면 Device_ID로, 없으면 Site_ID로 필터링
-      const singleTableFilter = deviceIdParam 
-        ? `&Device_ID=ilike.${encodeURIComponent(deviceIdParam)}` 
-        : `&Site_ID=ilike.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`;
 
       let allData = [];
       let from = 0;
@@ -427,17 +490,18 @@ function App() {
 
       while (hasMore) {
         const to = from + PAGE_SIZE - 1;
-        setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
+        if (!isIncremental) {
+          setLoadProgress(`${allData.length.toLocaleString()}건 로딩 중...`);
+        }
 
         // PostgREST 날짜 필터(filterParams) 주입
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.asc${filterParams}${singleTableFilter}`,
+          `${endpoint}?select=${MEASURE_SELECT_COLUMNS}&order=Date_Time.asc${filterParams}${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
               'Authorization': `Bearer ${SUPABASE_KEY}`,
-              'Range': `${from}-${to}`,
-              'Prefer': 'count=exact'
+              'Range': `${from}-${to}`
             }
           }
         );
@@ -462,20 +526,41 @@ function App() {
         }
       }
 
-      setLoadProgress(`총 ${allData.length.toLocaleString()}건 로드 완료`);
+      // 다음 증분 조회 기준점 — 모의 데이터 필터링 전 원본 기준으로 갱신해야
+      // 필터로 걸러진 최신 행을 매번 다시 받아오지 않는다.
+      allData.forEach(row => {
+        if (!row.Date_Time) return;
+        if (!latestTsRef.current || parseDate(row.Date_Time) > parseDate(latestTsRef.current)) {
+          latestTsRef.current = row.Date_Time;
+        }
+      });
+
       const normalized = normalizeData(allData);
       // 일반 사용자 뷰(isAdminParam이 false)라면 [MOCK TEST DATA]를 제외
-      const finalData = isAdminParam 
-        ? normalized 
+      const incoming = isAdminParam
+        ? normalized
         : normalized.filter(item => item.Add_note !== "[MOCK TEST DATA]");
+
+      const finalData = isIncremental
+        ? mergeMeasureRows(dataRef.current, incoming, bounds.gte)
+        : incoming;
+
+      queryKeyRef.current = queryKey;
+      dataRef.current = finalData;
       setData(finalData);
+      setLoadProgress(
+        isIncremental
+          ? `신규 ${incoming.length.toLocaleString()}건 반영 (총 ${finalData.length.toLocaleString()}건)`
+          : `총 ${finalData.length.toLocaleString()}건 로드 완료`
+      );
     } catch (err) {
       console.error(err);
       setError(err.message);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
-  }, [siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, isAdminParam, siteConfig]);
+  }, [hasSiteParam, siteSearchTerm, deviceIdParam, timeRange, customStart, customEnd, isAdminParam, siteConfig.site_id, siteConfig.loading]);
 
   // 텔레그램 API 직접 발송 함수 (Vercel/브라우저 직접 발송)
   const sendTelegramAlert = useCallback(async (chatIds, text) => {
@@ -885,6 +970,10 @@ function App() {
 
       if (response.ok) {
         alert("모든 모의 테스트 데이터가 일괄 삭제되었습니다!");
+        // 삭제는 증분 조회로 감지할 수 없으므로 캐시를 비우고 전체 재조회한다.
+        queryKeyRef.current = '';
+        latestTsRef.current = '';
+        dataRef.current = [];
         loadData(); // 데이터 테이블 새로고침
       } else {
         const err = await response.json();
@@ -954,18 +1043,33 @@ function App() {
     }
   }, [siteConfig]);
 
-  // 사이트 설정 정보 주기적 로드
+  // 사이트 설정 정보 주기적 로드 (탭이 보이는 동안에만 폴링)
   useEffect(() => {
     loadSiteConfig();
-    const interval = setInterval(loadSiteConfig, 5 * 60 * 1000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadSiteConfig();
+    }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [loadSiteConfig]);
 
   // 조회 필터 변경 또는 시간 경과 시 데이터 로드
+  // 백그라운드 탭에서는 폴링을 멈추고, 다시 화면에 돌아왔을 때 한 번 따라잡는다.
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadData();
+    }, 5 * 60 * 1000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') loadData();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [loadData]);
 
   // =========================================================================
@@ -1378,7 +1482,7 @@ function App() {
         setLoadProgress(`다운로드 데이터 ${allData.length.toLocaleString()}건 로딩 중...`);
 
         const response = await fetch(
-          `${endpoint}?select=*&order=Date_Time.asc${filterParams}${singleTableFilter}`,
+          `${endpoint}?select=${MEASURE_SELECT_COLUMNS}&order=Date_Time.asc${filterParams}${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
