@@ -136,10 +136,14 @@ const buildDateFilterParams = (bounds) => {
 const getDateFilterParams = (range, start, end) => buildDateFilterParams(getDateBounds(range, start, end));
 
 // 측정 데이터에서 실제로 쓰는 컬럼만 조회한다 (select=* 금지 — 전송량 절감).
-// normalizeData()가 취하는 필드와 반드시 일치시킬 것.
+//
+// ⚠️ 서버 테이블에 실재하는 컬럼만 적을 것. 없는 컬럼을 적으면 PostgREST가
+//    400을 반환한다. MAXR은 업로더가 전송 대상에서 제외하므로(gui_uploader.py
+//    process_real_supabase 참조) 서버에 존재하지 않는다. normalizeData()가
+//    기본값 200으로 채우므로 조회하지 않아도 동작에 차이가 없다.
 const MEASURE_SELECT_COLUMNS = [
   'Date_Time', 'Device_ID', 'Channel', 'Channel_Name', 'TOC_Conc',
-  'DilutionFactor', 'MSIG', 'SLOP', 'ICPT', 'FACT', 'OFST', 'MAXR', 'Add_note'
+  'DilutionFactor', 'MSIG', 'SLOP', 'ICPT', 'FACT', 'OFST', 'Add_note'
 ].join(',');
 
 // 측정 행의 고유 키 (증분 로드 시 중복 제거용)
