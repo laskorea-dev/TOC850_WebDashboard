@@ -830,29 +830,48 @@ class GUIUploaderApp:
         worker.start()
 
     def query_server_latest_datetime(self):
-        """백그라운드 스레드에서 호출: Supabase 서버의 가장 최신 Date_Time을 조회"""
+        """백그라운드 스레드에서 호출: Supabase 서버의 가장 최신 Date_Time을 조회
+
+        반환값: (조회 성공 여부, 최신 Date_Time 또는 None)
+
+        '조회 실패'와 '서버에 데이터가 없음'을 반드시 구분해야 한다. 둘 다 None으로
+        뭉개면 통신 장애·API 차단(402 등)이 발생할 때마다 증분 기준점을 잃고 로컬 DB
+        전체가 재업로드 대상이 되어, 서버에 대량 중복이 쌓인다.
+        """
         try:
             base_url = self.supabase_url.rstrip('/')
             if "/rest/v1" in base_url:
                 req_url = f"{base_url}/{self.supabase_table}"
             else:
                 req_url = f"{base_url}/rest/v1/{self.supabase_table}"
-            
+
             req_url += f"?select=Date_Time&Device_ID=eq.{urllib.parse.quote(self.device_id)}&order=Date_Time.desc&limit=1"
-            
+
             headers = {
                 "apikey": self.supabase_key,
                 "Authorization": f"Bearer {self.supabase_key}",
                 "Content-Type": "application/json"
             }
             status, body = self.make_supabase_request(req_url, headers=headers, method="GET", timeout=30)
+
+            if status != 200:
+                self.msg_queue.put(("log", f"[서버 조회 실패] 응답 상태 코드: {status}"))
+                return False, None
+
             data = json.loads(body.decode('utf-8'))
-            if data and len(data) > 0:
-                return data[0]["Date_Time"]
-            return None
+
+            # 정상 응답은 반드시 배열이다. 오류 응답({"message": ...})을 데이터로
+            # 오인하지 않도록 형식을 확인한다.
+            if not isinstance(data, list):
+                self.msg_queue.put(("log", f"[서버 조회 실패] 예상과 다른 응답 형식: {str(data)[:200]}"))
+                return False, None
+
+            if len(data) > 0:
+                return True, data[0].get("Date_Time")
+            return True, None  # 조회는 성공했고, 서버에 해당 기기 데이터가 아직 없음
         except Exception as e:
             self.msg_queue.put(("log", f"[서버 조회 오류] 최신 데이터 시각 확인 실패: {e}"))
-            return None
+            return False, None
 
     def uploader_worker_process(self):
         """백그라운드 스레드 Worker 실제 동작"""
@@ -871,7 +890,17 @@ class GUIUploaderApp:
         # Supabase 서버에서 가장 최신 업로드 시각을 직접 조회하여 증분 기준점 확인
         if not self.is_mock:
             self.msg_queue.put(("log", "서버 최신 데이터 시각 조회 중..."))
-            last_datetime = self.query_server_latest_datetime()
+            query_ok, last_datetime = self.query_server_latest_datetime()
+
+            if not query_ok:
+                # 기준점을 모르는 상태로 진행하면 로컬 DB 전체가 전송 대상이 된다.
+                # 측정값은 로컬 SQLite에 그대로 남아 있으므로 이번 주기는 건너뛰고
+                # 다음 주기에 재시도한다. 서버가 복구되면 자동으로 따라잡는다.
+                self.msg_queue.put(("log", "[동기화 보류] 서버 기준 시각을 확인하지 못했습니다. 전체 재업로드를 막기 위해 이번 주기를 건너뜁니다."))
+                self.msg_queue.put(("log", "→ 측정 데이터는 로컬 DB에 안전하게 보존되며, 서버 복구 시 다음 주기에 자동으로 전송됩니다."))
+                self.msg_queue.put(("error", "서버 기준 시각 조회 실패 — 이번 주기 건너뜀"))
+                return
+
             if last_datetime:
                 # ISO 포맷(T 포함)인 경우 SQLite 포맷(공백)으로 정제
                 last_datetime = last_datetime.replace('T', ' ')
