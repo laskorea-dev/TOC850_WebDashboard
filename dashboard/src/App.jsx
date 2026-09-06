@@ -145,6 +145,66 @@ const MEASURE_SELECT_COLUMNS = [
 // 측정 행의 고유 키 (증분 로드 시 중복 제거용)
 const measureRowKey = (r) => `${r.Date_Time}|${r.Device_ID}|${r.Channel}`;
 
+// =========================================================================
+// 브라우저 저장소 캐시
+//
+// 현장(사무실 상황판)에서는 페이지 자체가 수 초 간격으로 새로고침된다.
+// 새로고침되면 메모리 상의 증분 상태가 사라지므로, 캐시가 없으면 매번 전 구간을
+// 다시 내려받게 된다. 조회 결과와 기준 시각을 localStorage에 남겨 두어
+// 새로고침 직후에도 증분 조회만 하도록 만든다.
+//
+// 나아가 마지막 조회로부터 MIN_FETCH_INTERVAL_MS가 지나지 않았으면 네트워크
+// 요청 자체를 생략한다. 3초마다 새로고침되더라도 실제 조회는 분당 1회로 묶인다.
+// =========================================================================
+const CACHE_KEY_PREFIX = 'toc_measure_cache_v1:';
+const SITE_CONFIG_CACHE_PREFIX = 'toc_site_config_v1:';
+const SITE_CONFIG_TTL_MS = 5 * 60 * 1000;     // 설정 정보 캐시 유효 시간
+const MIN_FETCH_INTERVAL_MS = 60 * 1000;      // 새로고침 폭주 시 조회 최소 간격
+const MAX_CACHE_BYTES = 3 * 1024 * 1024;      // localStorage 용량(약 5MB) 대비 여유분
+const MAX_INITIAL_ROWS = 20000;               // 전체 재조회 1회당 상한
+
+// 저장 용량을 아끼기 위해 객체가 아닌 값 배열로 직렬화한다.
+const CACHE_COLUMNS = MEASURE_SELECT_COLUMNS.split(',');
+const encodeCacheRows = (rows) => rows.map(r => CACHE_COLUMNS.map(c => r[c]));
+const decodeCacheRows = (arr) => arr.map(vals => {
+  const row = {};
+  CACHE_COLUMNS.forEach((c, i) => { row[c] = vals[i]; });
+  return row;
+});
+
+const readMeasureCache = (key) => {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.rows)) return null;
+    return {
+      savedAt: parsed.savedAt || 0,
+      latestTs: parsed.latestTs || '',
+      rows: decodeCacheRows(parsed.rows)
+    };
+  } catch {
+    return null; // 사생활 모드·손상된 값 등 — 캐시는 최적화 수단이므로 조용히 포기
+  }
+};
+
+const writeMeasureCache = (key, latestTs, rows) => {
+  let slice = rows;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const payload = JSON.stringify({ savedAt: Date.now(), latestTs, rows: encodeCacheRows(slice) });
+    if (payload.length <= MAX_CACHE_BYTES) {
+      try {
+        localStorage.setItem(CACHE_KEY_PREFIX + key, payload);
+      } catch {
+        // 용량 초과 등 — 캐시를 못 남겨도 동작 자체는 유지된다
+      }
+      return;
+    }
+    if (slice.length <= 1) return;
+    slice = slice.slice(Math.ceil(slice.length / 2)); // 오래된 절반을 버리고 최신분만 남긴다
+  }
+};
+
 // 기존 데이터에 증분 수신분을 병합한다.
 // - 동일 키는 새로 받은 행으로 대체
 // - windowStart(구간 시작)보다 오래된 행은 제거 → 슬라이딩 구간에서 무한 누적 방지
@@ -295,12 +355,31 @@ function App() {
   const latestTsRef = useRef('');   // 마지막으로 수신한 Date_Time
   const dataRef = useRef([]);       // 현재 보유 중인 측정 데이터
   const isFetchingRef = useRef(false); // 요청 진행 중 여부
+  const lastFetchAtRef = useRef(0);    // 마지막으로 네트워크 조회를 수행한 시각
+  const siteConfigHydratedRef = useRef(false); // 설정 캐시 복원 시도 여부
 
   // =========================================================================
   // site_config 로드 함수 추가
   // =========================================================================
   const loadSiteConfig = useCallback(async () => {
     if (!hasSiteParam) return;
+
+    // 설정 정보도 새로고침마다 조회하면 낭비다. 5분간은 캐시로 대신한다.
+    const configCacheKey = `${SITE_CONFIG_CACHE_PREFIX}${deviceIdParam || siteId || siteSearchTerm}`;
+    if (!siteConfigHydratedRef.current) {
+      siteConfigHydratedRef.current = true;
+      try {
+        const raw = localStorage.getItem(configCacheKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (parsed && parsed.config) {
+          setSiteConfig(parsed.config);
+          if (Date.now() - (parsed.savedAt || 0) < SITE_CONFIG_TTL_MS) return;
+        }
+      } catch {
+        // 캐시 손상·사생활 모드 — 원격 조회로 진행
+      }
+    }
+
     try {
       if (!SUPABASE_URL || !SUPABASE_KEY) {
         throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
@@ -351,7 +430,7 @@ function App() {
               console.error("임계값 JSON 파싱 에러:", e);
             }
           }
-          setSiteConfig({
+          const resolvedConfig = {
             device_id: conf.device_id,
             site_id: conf.site_id,
             passcode: conf.passcode || '850',
@@ -362,7 +441,13 @@ function App() {
             toc_alert_high: alertObj,
             loading: false,
             isValidDevice: true
-          });
+          };
+          try {
+            localStorage.setItem(configCacheKey, JSON.stringify({ savedAt: Date.now(), config: resolvedConfig }));
+          } catch {
+            // 저장 실패는 무시 — 캐시는 선택적 최적화
+          }
+          setSiteConfig(resolvedConfig);
           return;
         }
       }
@@ -460,9 +545,33 @@ function App() {
 
     // 조회 조건 식별자 — 하나라도 바뀌면 증분이 아닌 전체 재조회
     const queryKey = [targetTable, singleTableFilter, timeRange, customStart, customEnd, isAdminParam].join('|');
+
+    // 페이지 새로고침 직후(메모리 상태 없음)라면 localStorage 캐시로 복원한다.
+    if (!queryKeyRef.current) {
+      const cached = readMeasureCache(queryKey);
+      if (cached && cached.rows.length > 0) {
+        queryKeyRef.current = queryKey;
+        latestTsRef.current = cached.latestTs;
+        dataRef.current = cached.rows;
+        setData(cached.rows);
+        setLoadProgress(`캐시 복원 ${cached.rows.length.toLocaleString()}건`);
+
+        // 방금 받아온 데이터라면 네트워크 요청 자체를 생략한다.
+        // (수 초 간격 새로고침이 걸린 상황판에서 조회를 분당 1회로 묶는다)
+        if (Date.now() - cached.savedAt < MIN_FETCH_INTERVAL_MS) {
+          return;
+        }
+      }
+    }
+
     const isIncremental = queryKey === queryKeyRef.current
       && Boolean(latestTsRef.current)
       && dataRef.current.length > 0;
+
+    // 증분 조회도 최소 간격을 지킨다 (새로고침마다 요청이 나가는 것을 방지)
+    if (isIncremental && Date.now() - lastFetchAtRef.current < MIN_FETCH_INTERVAL_MS) {
+      return;
+    }
 
     // 증분 구간: 마지막 수신 시각 이후(동일 시각 행 누락 방지를 위해 gte + 중복 제거)
     const filterParams = isIncremental
@@ -488,6 +597,12 @@ function App() {
       let from = 0;
       let hasMore = true;
 
+      // 전체 재조회는 최신 데이터부터 가져와 MAX_INITIAL_ROWS에서 끊는다.
+      // 구간을 '전체 기간'으로 두었을 때 한 번에 수만 건이 쏟아지는 것을 막는다.
+      const sortOrder = isIncremental ? 'asc' : 'desc';
+
+      lastFetchAtRef.current = Date.now();
+
       while (hasMore) {
         const to = from + PAGE_SIZE - 1;
         if (!isIncremental) {
@@ -496,7 +611,7 @@ function App() {
 
         // PostgREST 날짜 필터(filterParams) 주입
         const response = await fetch(
-          `${endpoint}?select=${MEASURE_SELECT_COLUMNS}&order=Date_Time.asc${filterParams}${singleTableFilter}`,
+          `${endpoint}?select=${MEASURE_SELECT_COLUMNS}&order=Date_Time.${sortOrder}${filterParams}${singleTableFilter}`,
           {
             headers: {
               'apikey': SUPABASE_KEY,
@@ -523,7 +638,16 @@ function App() {
           if (chunk.length < PAGE_SIZE) {
             hasMore = false;
           }
+          // 전체 재조회 상한 도달 — 최신 MAX_INITIAL_ROWS건만 사용한다
+          if (!isIncremental && allData.length >= MAX_INITIAL_ROWS) {
+            hasMore = false;
+          }
         }
+      }
+
+      // 전체 재조회는 내림차순으로 받았으므로 오름차순으로 되돌린다
+      if (!isIncremental) {
+        allData.reverse();
       }
 
       // 다음 증분 조회 기준점 — 모의 데이터 필터링 전 원본 기준으로 갱신해야
@@ -541,12 +665,17 @@ function App() {
         ? normalized
         : normalized.filter(item => item.Add_note !== "[MOCK TEST DATA]");
 
+      // 전체 재조회도 mergeMeasureRows를 거친다. 동일 Date_Time이 페이지 경계에
+      // 걸릴 때 생길 수 있는 중복을 제거하고 정렬을 보장하기 위한 것으로,
+      // 서버가 이미 구간을 걸러 주므로 잘라내기(windowStart)는 적용하지 않는다.
       const finalData = isIncremental
         ? mergeMeasureRows(dataRef.current, incoming, bounds.gte)
-        : incoming;
+        : mergeMeasureRows([], incoming, null);
 
       queryKeyRef.current = queryKey;
       dataRef.current = finalData;
+      // 새로고침 후에도 증분 조회만 하도록 결과를 브라우저에 남긴다
+      writeMeasureCache(queryKey, latestTsRef.current, finalData);
       setData(finalData);
       setLoadProgress(
         isIncremental
@@ -974,6 +1103,14 @@ function App() {
         queryKeyRef.current = '';
         latestTsRef.current = '';
         dataRef.current = [];
+        lastFetchAtRef.current = 0;
+        try {
+          Object.keys(localStorage)
+            .filter(k => k.startsWith(CACHE_KEY_PREFIX))
+            .forEach(k => localStorage.removeItem(k));
+        } catch {
+          // 저장소 접근 불가 — 무시
+        }
         loadData(); // 데이터 테이블 새로고침
       } else {
         const err = await response.json();
