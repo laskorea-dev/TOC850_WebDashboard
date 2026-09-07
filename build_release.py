@@ -57,14 +57,32 @@ echo [TOC-850 Sync Client Launcher]
 echo 현장 계측기 데이터 자동 동기화 프로그램을 가동합니다.
 echo.
 
-if not exist "%~dp0gui_uploader_v{VERSION}.exe" (
-    echo [오류] gui_uploader_v{VERSION}.exe 파일을 찾을 수 없습니다.
+rem 자가 업데이트로 실행파일 이름이 바뀌므로 특정 버전을 고정하지 않는다.
+rem 1순위: 업데이터가 남긴 current_exe.txt (정확함)
+rem 2순위: 폴더에서 이름순 최신 파일 (최초 설치 시)
+rem   ※ 2순위는 문자열 정렬이라 v5.10 이 v5.9 보다 낮게 잡힌다. 그래서
+rem      업데이트를 거치면 반드시 1순위 경로를 타도록 해 두었다.
+set "TARGET="
+if exist "%~dp0current_exe.txt" (
+    set /p TARGET=<"%~dp0current_exe.txt"
+)
+if defined TARGET if not exist "%~dp0%TARGET%" set "TARGET="
+
+if not defined TARGET (
+    for /f "delims=" %%F in ('dir /b /o-n "%~dp0gui_uploader_v*.exe" 2^>nul') do (
+        if not defined TARGET set "TARGET=%%F"
+    )
+)
+
+if not defined TARGET (
+    echo [오류] gui_uploader_v*.exe 파일을 찾을 수 없습니다.
     echo 배포 폴더가 올바르게 구성되어 있는지 확인하십시오.
     pause
     exit /b 1
 )
 
-start "" "%~dp0gui_uploader_v{VERSION}.exe"
+echo [안내] 실행 대상: %TARGET%
+start "" "%~dp0%TARGET%"
 echo [안내] 업로더가 정상적으로 가동되어 백그라운드 트레이로 기동됩니다.
 exit
 """
@@ -107,9 +125,32 @@ v{VERSION}부터는 조회 실패와 '데이터 없음'을 구분하여, 실패�
 [동기화 보류] 서버 기준 시각을 확인하지 못했습니다. 전체 재업로드를 막기 위해 이번 주기를 건너뜁니다.
 ```
 
+## 🛰️ 원격 관리 (v{VERSION} 신규)
+
+본사에서 Supabase `device_config` 값만 바꾸면 현장 방문 없이 아래를 제어합니다.
+업로더가 **매 동기화 주기마다 이 값을 먼저 읽고** 전송 여부를 결정합니다.
+
+| 컬럼 | 용도 |
+|---|---|
+| `remote_paused` | `true` 로 두면 다음 주기부터 동기화 중지 (긴급 차단) |
+| `interval_seconds` | 동기화 주기 원격 조정 (60초 미만은 무시) |
+| `notice` | 현장 로그창에 표시할 공지 문구 |
+| `target_version` | 이 기기가 올라갈 버전. 자가 업데이트가 수행됨 |
+
+**자가 업데이트**는 `target_version` 이 현재 버전보다 높을 때만 동작하며,
+`uploader_release` 테이블의 `sha256` 과 대조해 **무결성이 일치할 때만** 설치합니다.
+설치는 현재 exe 를 `.old` 로 옮기고 새 파일로 재기동하는 방식이며, 어느 단계에서든
+실패하면 원래 파일로 되돌리고 기존 버전으로 계속 동작합니다.
+
+> 📌 서버에 위 컬럼이 아직 없어도 v{VERSION}은 정상 동작합니다.
+> `tools/migrations/001_uploader_remote_management.sql` 을 실행하면 그 시점부터 적용됩니다.
+
+> ⚠️ **새 버전은 반드시 한 지점에 먼저 배포하고 확인한 뒤 전체로 넓히십시오.**
+> 전체에 동시에 지정하면 문제가 있을 때 5개 지점이 함께 멈춥니다.
+
 ## 📦 구성 파일
 1. **`gui_uploader_v{VERSION}.exe`**: 동기화 실행 프로그램
-2. **`1_업로더_실행하기.bat`**: 간편 실행 배치 스크립트
+2. **`1_업로더_실행하기.bat`**: 간편 실행 배치 스크립트 (최신 버전 exe 자동 선택)
 3. **`uploader_config.example.json`**: 설정 파일 **템플릿**
 
 ## ♻️ 기존 설치본 업데이트 절차 (이미 운영 중인 현장)

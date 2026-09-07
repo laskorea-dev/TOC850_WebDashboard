@@ -8,6 +8,10 @@ import time
 from datetime import datetime
 import urllib.request
 import urllib.parse
+import hashlib
+import shutil
+import subprocess
+import glob
 
 
 # GUI libraries
@@ -26,6 +30,13 @@ CREDENTIALS_PATH = os.path.join(BASE_DIR, "credentials.json")
 CONFIG_PATH = os.path.join(BASE_DIR, "uploader_config.json")
 LOG_PATH = os.path.join(BASE_DIR, "uploader.log")
 
+# 애플리케이션 버전 — 원격 업데이트 판단의 기준이 되므로 릴리스마다 갱신할 것.
+# build_release.py 의 VERSION 과 반드시 일치해야 한다.
+APP_VERSION = "5.5"
+
+# 원격 업데이트 작업 폴더
+UPDATE_DIR = os.path.join(BASE_DIR, "update")
+
 # 기본 상수 설정 (설정 파일에 없을 시의 대체값)
 DEFAULT_INTERVAL_SECONDS = 900  # 15분
 DEFAULT_DB_NAME = "toc_db.db"
@@ -37,7 +48,7 @@ DEFAULT_TABLE_NAME = "measure_logs_v2"
 class GUIUploaderApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("TOC B2B 다중 계측기 자동 업로더 v5.3 (Supabase V2)")
+        self.root.title(f"TOC B2B 다중 계측기 자동 업로더 v{APP_VERSION} (Supabase V2)")
         self.root.geometry("660x700")
         self.root.resizable(False, False)
         
@@ -102,6 +113,10 @@ class GUIUploaderApp:
         if hasattr(self, 'is_auto_config') and self.is_auto_config:
             self.log_to_viewer("⚠️ [대기 상태] 지점 식별자(Site ID)와 사이트 이름(Site Name)이 'auto' 상태이므로 자동 동기화 및 기기 설정(device_config) 자동 등록이 보류되었습니다.")
             self.log_to_viewer("⚠️ 설정을 실제 지점 정보로 수정 후 저장(💾)하고 [동기화 시작/재개]를 실행해 주십시오.")
+
+        # 자가 업데이트로 남은 이전 버전 실행파일 정리
+        self.remote_pause_applied = False
+        self.cleanup_old_binaries()
 
         # 기동 후 자동 1회 즉시 동기화 (3초 후 실행하여 UI 안정화 대기)
         self.startup_sync_pending = True
@@ -887,6 +902,15 @@ class GUIUploaderApp:
         if not self.is_mock:
             self.sync_device_config_to_supabase()
 
+            # 원격 관리 — 본사 설정을 먼저 읽어 정지/주기/업데이트 지시를 반영한다.
+            # 전송보다 앞서 수행해야 '원격 정지'가 실제로 이번 주기를 막을 수 있다.
+            # 바로 위 sync_device_config_to_supabase() 가 등록까지 마쳤으므로
+            # 여기서 다시 자동 등록을 시도할 필요가 없다 (중복 POST 방지).
+            remote_conf = self.fetch_device_config(allow_auto_reg=False)
+            if not self.apply_remote_control(remote_conf):
+                return
+            self.check_for_update(remote_conf)
+
         # Supabase 서버에서 가장 최신 업로드 시각을 직접 조회하여 증분 기준점 확인
         if not self.is_mock:
             self.msg_queue.put(("log", "서버 최신 데이터 시각 조회 중..."))
@@ -1136,6 +1160,199 @@ class GUIUploaderApp:
 
 
     # =========================================================================
+    # 원격 관리 — device_config 기반 제어 및 자가 업데이트
+    #
+    # 현장 PC는 물리적으로 손이 닿지 않는다. 문제를 알아도 멈출 수 없다는 것이
+    # 가장 큰 위험이므로, 원격 정지를 먼저 두고 그 위에 자가 업데이트를 얹는다.
+    # 통로는 이미 매 주기 접근하는 device_config 를 그대로 쓴다.
+    #
+    # ⚠️ 제어 컬럼이 아직 없는 서버에서도 그대로 동작해야 한다. 값이 없으면
+    #    .get() 이 None 을 돌려주고 기존 동작을 유지한다. device_config 조회는
+    #    select 를 지정하지 않으므로 없는 컬럼 때문에 400이 나지 않는다.
+    # =========================================================================
+    @staticmethod
+    def parse_version(text):
+        """'5.5' → (5, 5). 비교 불가한 값은 (0,)으로 취급한다."""
+        try:
+            return tuple(int(part) for part in str(text).strip().split("."))
+        except Exception:
+            return (0,)
+
+    def cleanup_old_binaries(self):
+        """자가 업데이트 후 남은 이전 버전 실행파일을 정리한다."""
+        try:
+            for stale in glob.glob(os.path.join(BASE_DIR, "*.old")):
+                try:
+                    os.remove(stale)
+                    self.msg_queue.put(("log", f"[업데이트] 이전 버전 파일을 정리했습니다: {os.path.basename(stale)}"))
+                except OSError:
+                    pass  # 아직 잠겨 있으면 다음 기동 때 다시 시도한다
+        except Exception:
+            pass
+
+    def apply_remote_control(self, conf):
+        """device_config 의 원격 제어 값을 반영한다. 반환: 이번 주기를 진행할지 여부"""
+        if not conf:
+            return True
+
+        notice = (conf.get("notice") or "").strip()
+        if notice and notice != getattr(self, "_last_notice", None):
+            self._last_notice = notice
+            self.msg_queue.put(("log", f"[본사 공지] {notice}"))
+
+        remote_interval = conf.get("interval_seconds")
+        if remote_interval:
+            try:
+                remote_interval = int(remote_interval)
+                if remote_interval >= 60 and remote_interval != self.interval_seconds:
+                    self.msg_queue.put(("remote_interval", remote_interval))
+            except (TypeError, ValueError):
+                pass
+
+        # 원격 정지 — 사고 발생 시 본사에서 즉시 멈출 수 있는 안전장치
+        if bool(conf.get("remote_paused")):
+            self.msg_queue.put(("remote_pause", True))
+            self.msg_queue.put(("log", "[원격 정지] 본사 설정에 의해 동기화가 중지되었습니다. 이번 주기를 건너뜁니다."))
+            return False
+
+        if getattr(self, "remote_pause_applied", False):
+            self.msg_queue.put(("remote_pause", False))
+            self.msg_queue.put(("log", "[원격 정지 해제] 본사 설정이 해제되어 동기화를 재개합니다."))
+        return True
+
+    def fetch_release(self, version):
+        """uploader_release 테이블에서 지정 버전의 배포 정보를 가져온다."""
+        try:
+            base_url = self.supabase_url.rstrip('/')
+            prefix = base_url if "/rest/v1" in base_url else f"{base_url}/rest/v1"
+            url = (
+                f"{prefix}/uploader_release"
+                f"?version=eq.{urllib.parse.quote(str(version))}&is_active=eq.true&limit=1"
+            )
+            headers = {"apikey": self.supabase_key, "Authorization": f"Bearer {self.supabase_key}"}
+            status, body = self.make_supabase_request(url, headers=headers, method="GET", timeout=30)
+            if status != 200:
+                self.msg_queue.put(("log", f"[업데이트] 배포 정보 조회 실패 (상태 {status})"))
+                return None
+            rows = json.loads(body.decode("utf-8"))
+            if isinstance(rows, list) and rows:
+                return rows[0]
+            self.msg_queue.put(("log", f"[업데이트] 버전 {version} 의 배포 정보가 등록되어 있지 않습니다."))
+        except Exception as e:
+            self.msg_queue.put(("log", f"[업데이트] 배포 정보 조회 오류: {e}"))
+        return None
+
+    def download_release(self, release):
+        """실행파일을 내려받아 SHA-256을 검증한다. 성공 시 파일 경로 반환."""
+        url = (release.get("url") or "").strip()
+        expected = (release.get("sha256") or "").strip().lower()
+        version = release.get("version")
+
+        if not url or not expected:
+            self.msg_queue.put(("log", "[업데이트] url 또는 sha256 이 비어 있어 중단합니다."))
+            return None
+        if not url.lower().startswith("https://"):
+            self.msg_queue.put(("log", "[업데이트] HTTPS 주소가 아니어서 중단합니다."))
+            return None
+
+        os.makedirs(UPDATE_DIR, exist_ok=True)
+        staged = os.path.join(UPDATE_DIR, f"gui_uploader_v{version}.exe")
+        partial = staged + ".part"
+
+        try:
+            self.msg_queue.put(("log", f"[업데이트] v{version} 내려받는 중..."))
+            with urllib.request.urlopen(url, timeout=300) as resp, open(partial, "wb") as out:
+                digest = hashlib.sha256()
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    out.write(chunk)
+            actual = digest.hexdigest()
+
+            if actual != expected:
+                os.remove(partial)
+                self.msg_queue.put(("log", "[업데이트] 무결성 검증 실패 — 파일을 폐기했습니다."))
+                self.msg_queue.put(("log", f"  기대값 {expected[:16]}... / 실제값 {actual[:16]}..."))
+                return None
+
+            if os.path.exists(staged):
+                os.remove(staged)
+            os.rename(partial, staged)
+            self.msg_queue.put(("log", f"[업데이트] 내려받기 및 무결성 검증 완료: {os.path.basename(staged)}"))
+            return staged
+        except Exception as e:
+            self.msg_queue.put(("log", f"[업데이트] 내려받기 실패: {e}"))
+            try:
+                if os.path.exists(partial):
+                    os.remove(partial)
+            except OSError:
+                pass
+        return None
+
+    def check_for_update(self, conf):
+        """device_config 의 target_version 을 보고 필요 시 새 실행파일을 준비한다."""
+        target = (conf.get("target_version") or "").strip() if conf else ""
+        if not target or target == APP_VERSION:
+            return
+        if self.parse_version(target) <= self.parse_version(APP_VERSION):
+            return  # 하향 배포는 하지 않는다 (롤백은 현장 조치로 처리)
+        if not getattr(sys, "frozen", False):
+            self.msg_queue.put(("log", f"[업데이트] v{target} 배포 지정됨 — 개발 모드에서는 적용하지 않습니다."))
+            return
+
+        release = self.fetch_release(target)
+        if not release:
+            return
+        staged = self.download_release(release)
+        if staged:
+            notes = (release.get("notes") or "").strip()
+            if notes:
+                self.msg_queue.put(("log", f"[업데이트] 변경 사항: {notes}"))
+            self.msg_queue.put(("update_ready", (target, staged)))
+
+    def install_update(self, version, staged_path):
+        """UI 스레드에서 호출: 실행파일을 교체하고 새 버전으로 재기동한다.
+
+        Windows 는 실행 중인 파일을 덮어쓸 수 없지만 '이름 변경'은 허용한다.
+        현재 exe 를 .old 로 옮긴 뒤 새 파일을 제자리에 놓고 재기동한다.
+        어느 단계에서든 실패하면 이름을 되돌려 기존 상태를 유지한다.
+        """
+        current = os.path.abspath(sys.executable)
+        backup = current + ".old"
+        target = os.path.join(BASE_DIR, f"gui_uploader_v{version}.exe")
+
+        try:
+            if os.path.exists(backup):
+                try:
+                    os.remove(backup)
+                except OSError:
+                    pass
+
+            self.log_to_viewer(f"[업데이트] v{version} 설치를 시작합니다. 프로그램이 재기동됩니다.")
+            os.rename(current, backup)
+            try:
+                shutil.move(staged_path, target)
+            except Exception:
+                os.rename(backup, current)  # 원상 복구
+                raise
+
+            # 런처가 실행할 파일을 명시해 둔다. 파일명 문자열 정렬에 의존하면
+            # v5.10 이 v5.9 보다 낮은 것으로 정렬되어 구버전이 기동된다.
+            try:
+                with open(os.path.join(BASE_DIR, "current_exe.txt"), "w", encoding="utf-8") as f:
+                    f.write(os.path.basename(target))
+            except OSError:
+                pass
+
+            subprocess.Popen([target], cwd=BASE_DIR, close_fds=True)
+            self.root.after(1500, self.root.destroy)
+        except Exception as e:
+            self.log_to_viewer(f"[업데이트 실패] {e}")
+            self.log_to_viewer("[업데이트 실패] 기존 버전으로 계속 동작합니다. 본사에 문의하십시오.")
+
+    # =========================================================================
     # QUEUE MESSAGE LISTENER (UI Thread)
     # =========================================================================
     def listen_queue(self):
@@ -1167,6 +1384,28 @@ class GUIUploaderApp:
                     self._auto_minimize_if_startup()
                 elif msg_type == "error":
                     self.log_to_viewer(f"[경고] 백그라운드 엔진 경보: {content}")
+                elif msg_type == "remote_pause":
+                    # 원격 정지/해제. 현장에서 직접 정지시킨 경우를 덮어쓰지 않도록
+                    # 원격으로 걸었던 정지만 원격으로 푼다.
+                    if content:
+                        self.remote_pause_applied = True
+                        if not self.is_paused:
+                            self.is_paused = True
+                    else:
+                        self.remote_pause_applied = False
+                        if self.is_paused:
+                            self.is_paused = False
+                    self.update_status_badge()
+                    self.update_pause_button_style()
+                elif msg_type == "remote_interval":
+                    self.interval_seconds = content
+                    self.time_left = content
+                    if hasattr(self, 'interval_var'):
+                        self.interval_var.set(str(content // 60))
+                    self.log_to_viewer(f"[원격 설정] 연동 주기가 {content // 60}분({content}초)으로 변경되었습니다.")
+                elif msg_type == "update_ready":
+                    version, staged_path = content
+                    self.install_update(version, staged_path)
                     
                 self.msg_queue.task_done()
         except queue.Empty:
