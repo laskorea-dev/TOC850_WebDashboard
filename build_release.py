@@ -4,7 +4,7 @@ import shutil
 import subprocess
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VERSION = "5.4"
+VERSION = "5.5"
 PACKAGE_NAME = f"계측기_PC_배포패키지_v{VERSION}"
 SPEC_FILENAME = f"gui_uploader_v{VERSION}.spec"
 SPEC_PATH = os.path.join(BASE_DIR, SPEC_FILENAME)
@@ -90,15 +90,50 @@ README_CONTENT = f"""# TOC-850 B2B SYNC CLIENT v{VERSION} 배포 가이드
 
 본 패키지는 현장 측정 PC의 SQLite DB에서 측정값을 자동으로 수집하여 Supabase 실시간 클라우드로 전송해주는 동기화 솔루션 배포 패키지입니다.
 
+## 🆕 v{VERSION} 변경 사항
+
+**서버 기준 시각 조회 실패 시 전체 재업로드를 하지 않습니다.**
+
+이전 버전은 증분 기준점을 잡기 위한 서버 조회가 실패하면(통신 장애, API 차단 등)
+'서버에 데이터가 없음'으로 잘못 해석해 **로컬 DB 전체를 다시 올리려** 했습니다.
+서버에 중복 방지 제약이 없으면 그대로 중복이 쌓입니다(실제 발생 이력 있음).
+
+v{VERSION}부터는 조회 실패와 '데이터 없음'을 구분하여, 실패한 주기는 건너뛰고
+다음 주기에 재시도합니다. 측정값은 로컬 DB에 그대로 보존되므로 유실은 없습니다.
+
+로그에 아래가 뜨면 정상 동작입니다(서버 복구 시 자동으로 따라잡습니다).
+
+```
+[동기화 보류] 서버 기준 시각을 확인하지 못했습니다. 전체 재업로드를 막기 위해 이번 주기를 건너뜁니다.
+```
+
 ## 📦 구성 파일
 1. **`gui_uploader_v{VERSION}.exe`**: 동기화 실행 프로그램
 2. **`1_업로더_실행하기.bat`**: 간편 실행 배치 스크립트
-3. **`uploader_config.json`**: 설정 파일
+3. **`uploader_config.example.json`**: 설정 파일 **템플릿**
+
+## ♻️ 기존 설치본 업데이트 절차 (이미 운영 중인 현장)
+
+> ⚠️ **`uploader_config.json`을 절대 덮어쓰지 마십시오.** 지점 ID와 Supabase 자격
+> 증명이 들어 있습니다. 이 파일이 초기화되면 안전장치가 걸려 동기화가 조용히 멈춥니다.
+> 그래서 이 패키지에는 설정 파일을 `.example.json` 이름으로만 넣었습니다.
+
+1. 트레이에서 기존 업로더를 **완전히 종료**합니다.
+2. 새 `gui_uploader_v{VERSION}.exe`와 `1_업로더_실행하기.bat` **두 개만** 기존 폴더에 복사합니다.
+3. `1_업로더_실행하기.bat`을 실행합니다.
+4. 로그 첫 줄에 버전이 v{VERSION}으로 표시되는지, 그리고 아래가 뜨는지 확인합니다.
+   ```
+   서버 최신 데이터 시각 조회 중...
+   서버 최신 데이터: <시각>
+   ```
+5. 이전 버전 exe(`gui_uploader_v5.4.exe` 등)는 정상 확인 후 삭제하십시오.
+
+설정 파일과 `toc_db.db`는 그대로 두면 됩니다. 건드릴 필요가 없습니다.
 
 ## ⚙️ 최초 현장 설치 및 세팅 절차
 
 1. **DB 파일 복사 및 경로 셋업**:
-   - 계측기 측정 프로그램이 생성하는 `toc_db.db` 파일을 본 폴더 내에 배치하거나, 다른 폴더에 있을 경우 `uploader_config.json`의 `db_path`에 절대경로를 입력합니다. (예: `C:\\LAS_Korea\\toc_db.db`)
+   - 계측기 측정 프로그램이 생성하는 `toc_db.db` 파일을 본 폴더 내에 배치하거나, 다른 폴더에 있을 경우 `uploader_config.example.json`을 `uploader_config.json`으로 복사한 뒤 `db_path`에 절대경로를 입력합니다. (예: `C:\\LAS_Korea\\toc_db.db`)
 
 2. **설정 수정 및 수동 활성화 (Fail-safe 해제)**:
    - 본 프로그램은 최초 배포 시 `auto` 플래그 안전장치에 의해 **일시정지(PAUSED)** 상태로 가동됩니다.
@@ -190,8 +225,11 @@ def main():
         f.write(LAUNCHER_CONTENT)
     print(f" -> 런처 배치파일 생성 완료: {os.path.basename(launcher_path)}")
     
-    # uploader_config.json 복사
-    config_path = os.path.join(PACKAGE_PATH, "uploader_config.json")
+    # 설정 파일은 '예제'로만 배포한다.
+    # uploader_config.json 이라는 이름으로 넣으면, 업데이트 시 폴더째 덮어썼을 때
+    # 현장에서 동작 중인 설정(지점 ID·자격증명)이 초기화되고 is_paused=true 로
+    # 되돌아가 동기화가 조용히 멈춘다.
+    config_path = os.path.join(PACKAGE_PATH, "uploader_config.example.json")
     with open(config_path, "w", encoding="utf-8") as f:
         f.write(CONFIG_EXAMPLE_CONTENT)
     print(f" -> 설정 예제 파일 생성 완료: {os.path.basename(config_path)}")
