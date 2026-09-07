@@ -1,0 +1,15 @@
+{
+    "db_path": "toc_db.db",
+    "google_sheet_name": "TOC_Measure_Dashboard",
+    "supabase_table": "measure_logs_v2",
+    "site_id": "auto",
+    "device_id": "auto",
+    "site_name": "auto",
+    "interval_seconds": 900,
+    "last_datetime": "",
+    "last_query": "N/A",
+    "is_paused": true,
+    "is_mock": true,
+    "supabase_url": "",
+    "supabase_key": ""
+}
