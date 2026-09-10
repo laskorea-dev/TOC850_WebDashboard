@@ -297,5 +297,18 @@ def main():
     print(f" 경로: {PACKAGE_PATH}")
     print("==================================================")
 
+    # 5. NAS 동기화 — 담당자 부재·인수인계 대비 (AGENTS.md §4)
+    #    이 PC 는 개인용이므로 배포본과 원본을 반드시 NAS 에 남긴다.
+    #    Z: 미연결 시 스크립트가 경고만 남기고 건너뛴다. 실패해도 빌드는 성공으로 둔다.
+    print("\n5. NAS 동기화 중...")
+    try:
+        subprocess.run(
+            [sys.executable, os.path.join(BASE_DIR, "tools", "nas_sync.py")],
+            cwd=BASE_DIR, check=False,
+        )
+    except Exception as e:
+        print(f" [경고] NAS 동기화 실행 실패: {e}")
+        print("        `python tools/nas_sync.py` 로 따로 실행하십시오.")
+
 if __name__ == "__main__":
     main()
