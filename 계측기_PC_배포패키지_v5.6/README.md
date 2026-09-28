@@ -54,8 +54,10 @@ v5.6부터는 조회 실패와 '데이터 없음'을 구분하여, 실패한 주
 설치는 현재 exe 를 `.old` 로 옮기고 새 파일로 재기동하는 방식이며, 어느 단계에서든
 실패하면 원래 파일로 되돌리고 기존 버전으로 계속 동작합니다.
 
-> 📌 서버에 위 컬럼이 아직 없어도 v5.6은 정상 동작합니다.
-> `tools/migrations/001_uploader_remote_management.sql` 을 실행하면 그 시점부터 적용됩니다.
+> 📌 서버 적용 현황 (2026-09-28): `remote_paused`·`interval_seconds`·`notice` 는 적용됨
+> (`tools/migrations/001_uploader_remote_management.sql`). **자가 업데이트용 `target_version`·
+> `uploader_release` 는 service_role 키 재발급 전까지 적용하지 않습니다**
+> (`002_uploader_self_update.sql`, 인계 문서 §1.4). 컬럼이 없어도 업로더는 정상 동작합니다.
 
 > ⚠️ **새 버전은 반드시 한 지점에 먼저 배포하고 확인한 뒤 전체로 넓히십시오.**
 > 전체에 동시에 지정하면 문제가 있을 때 5개 지점이 함께 멈춥니다.
