@@ -32,7 +32,7 @@ LOG_PATH = os.path.join(BASE_DIR, "uploader.log")
 
 # 애플리케이션 버전 — 원격 업데이트 판단의 기준이 되므로 릴리스마다 갱신할 것.
 # build_release.py 의 VERSION 과 반드시 일치해야 한다.
-APP_VERSION = "5.5"
+APP_VERSION = "5.6"
 
 # 원격 업데이트 작업 폴더
 UPDATE_DIR = os.path.join(BASE_DIR, "update")
