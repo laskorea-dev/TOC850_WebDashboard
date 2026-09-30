@@ -143,10 +143,55 @@ const getDateFilterParams = (range, start, end) => buildDateFilterParams(getDate
 //    기본값 200으로 채우므로 조회하지 않아도 동작에 차이가 없다.
 const MEASURE_SELECT_COLUMNS = [
   'Date_Time', 'Device_ID', 'Channel', 'Channel_Name', 'TOC_Conc',
-  'DilutionFactor', 'MSIG', 'SLOP', 'ICPT', 'FACT', 'OFST', 'Add_note'
+  'DilutionFactor', 'MSIG', 'SLOP', 'ICPT', 'FACT', 'OFST', 'Add_note',
+  'created_at'  // 서버 수신 시각 — 다음 조회 시점을 업로더 주기에 맞추는 데 쓴다
 ].join(',');
 
 // 측정 행의 고유 키 (증분 로드 시 중복 제거용)
+// =========================================================================
+// 다음 조회 시점 — 업로더 주기에 맞춘다
+//
+// 고정 주기로 조회하면 업로더와 시점이 어긋나 최신값이 최대 한 주기 늦게 뜨고,
+// 업로더를 일시정지·재시작하면 어긋남이 계속 남는다. 그래서 가장 최근에 서버가
+// 받은 시각(created_at)을 기준점으로, 그로부터 업로더 주기의 배수가 되는 다음
+// 시각 + 여유에 조회한다. 새 데이터가 들어올 때마다 기준점이 다시 잡히므로
+// 업로더 쪽 시점이 바뀌어도 한 번 받고 나면 저절로 맞춰진다.
+//
+// 업로더는 새 측정값이 있을 때만 전송하므로 created_at 간격은 '업로더 주기'와
+// '측정 주기' 중 긴 쪽이 된다(예: 1시간 측정 현장은 1시간). 최근 간격의 중앙값을
+// 주기로 삼으면 두 경우 모두 헛조회 없이 맞는다.
+// =========================================================================
+const computeNextPollDelay = (rows, now = Date.now()) => {
+  const times = [];
+  for (const r of rows) {
+    const t = Date.parse(r.created_at);
+    if (Number.isFinite(t)) times.push(t);
+  }
+  if (times.length === 0) return DEFAULT_UPLOAD_INTERVAL_MS;
+  times.sort((a, b) => a - b);
+
+  // 같은 전송 묶음(수 초 차이)은 간격에서 제외하고 중앙값을 분 단위로 반올림한다.
+  const recent = times.slice(-50);
+  const gaps = [];
+  for (let i = 1; i < recent.length; i++) {
+    const g = recent[i] - recent[i - 1];
+    if (g > 2 * 60 * 1000) gaps.push(g);
+  }
+  let interval = DEFAULT_UPLOAD_INTERVAL_MS;
+  if (gaps.length > 0) {
+    gaps.sort((a, b) => a - b);
+    const median = gaps[Math.floor(gaps.length / 2)];
+    interval = Math.round(median / 60000) * 60000;
+    interval = Math.min(Math.max(interval, 5 * 60 * 1000), 60 * 60 * 1000);
+  }
+
+  // 기준점 이후 now 를 처음 넘는 주기 시각. 업로더가 멈춰 있어도 주기마다 한 번씩만 확인한다.
+  const last = times[times.length - 1];
+  const cycles = Math.max(1, Math.floor((now - last - UPLOAD_SLACK_MS) / interval) + 1);
+  const delay = last + cycles * interval + UPLOAD_SLACK_MS - now;
+  return Math.min(Math.max(delay, 30 * 1000), interval + UPLOAD_SLACK_MS);
+};
+
 const measureRowKey = (r) => `${r.Date_Time}|${r.Device_ID}|${r.Channel}`;
 
 // =========================================================================
@@ -160,13 +205,15 @@ const measureRowKey = (r) => `${r.Date_Time}|${r.Device_ID}|${r.Channel}`;
 // 나아가 마지막 조회로부터 MIN_FETCH_INTERVAL_MS가 지나지 않았으면 네트워크
 // 요청 자체를 생략한다. 3초마다 새로고침되더라도 실제 조회는 5분당 1회로 묶인다.
 // =========================================================================
-const CACHE_KEY_PREFIX = 'toc_measure_cache_v1:';
+// v2: created_at 열 추가로 캐시 배열의 열 순서가 바뀌었다. 옛 캐시는 읽지 않는다.
+const CACHE_KEY_PREFIX = 'toc_measure_cache_v2:';
 const SITE_CONFIG_CACHE_PREFIX = 'toc_site_config_v1:';
 // 조회 주기 (2026-09-30)
 // Supabase Log Ingestion 은 요청 '횟수'에 비례한다. 화면을 상시 켜 두는 고객이 늘면
 // 대시보드 조회가 업로더보다 많은 로그를 쓴다. 측정값은 업로더가 15분마다 올리므로
 // 그보다 자주 조회해도 대부분 빈 응답이다. 설정은 거의 바뀌지 않는다.
-const DATA_POLL_MS = 15 * 60 * 1000;          // 측정 데이터 정기 조회 (업로더 주기와 동일)
+const DEFAULT_UPLOAD_INTERVAL_MS = 15 * 60 * 1000; // 업로더 주기를 추정할 수 없을 때의 기본값
+const UPLOAD_SLACK_MS = 90 * 1000;            // 업로더 주기 시각 뒤 여유 (전송 소요·타이머 오차)
 const SITE_CONFIG_TTL_MS = 30 * 60 * 1000;    // 설정 정보 캐시 유효 시간 겸 정기 조회 주기
 const MIN_FETCH_INTERVAL_MS = 5 * 60 * 1000;  // 새로고침·탭 전환 폭주 시 조회 최소 간격
 const MAX_CACHE_BYTES = 3 * 1024 * 1024;      // localStorage 용량(약 5MB) 대비 여유분
@@ -1209,23 +1256,44 @@ function App() {
   }, [loadSiteConfig]);
 
   // 조회 필터 변경 또는 시간 경과 시 데이터 로드
-  // 백그라운드 탭에서는 폴링을 멈추고, 다시 화면에 돌아왔을 때 한 번 따라잡는다.
+  // 다음 조회는 업로더 주기에 맞춰 예약한다(computeNextPollDelay).
+  // 백그라운드 탭에서는 조회를 건너뛰고, 다시 화면에 돌아왔을 때 한 번 따라잡는다.
   useEffect(() => {
-    loadData();
+    let timer = null;
+    let cancelled = false;
 
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') loadData();
-    }, DATA_POLL_MS);
+    const scheduleNext = () => {
+      if (cancelled) return;
+      clearTimeout(timer);
+      timer = setTimeout(tick, computeNextPollDelay(dataRef.current));
+    };
+    const tick = async () => {
+      if (document.visibilityState === 'visible') {
+        try { await loadData(); } catch { /* loadData 가 오류 상태를 표시한다 */ }
+      }
+      scheduleNext();
+    };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') loadData();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    tick();
+
     return () => {
-      clearInterval(interval);
+      cancelled = true;
+      clearTimeout(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
+  }, [loadData]);
+
+  // 사용자가 누른 '새로고침'·'연결 재시도'는 최소 조회 간격(MIN_FETCH_INTERVAL_MS)을 건너뛴다.
+  // 간격 제한은 자동 조회·페이지 새로고침 폭주를 막기 위한 것이지 사람의 명시적 요청을 막으려는 게 아니다.
+  // 진행 중인 요청이 있으면 loadData 가 스스로 무시하므로 연타해도 중복 요청은 나가지 않는다.
+  const handleManualRefresh = useCallback(() => {
+    lastFetchAtRef.current = 0;
+    loadData();
   }, [loadData]);
 
   // =========================================================================
@@ -1912,7 +1980,7 @@ function App() {
             <button className="filter-btn active" onClick={handleReturnToDashboard}>
               🖥️ 메인 대시보드로 가기
             </button>
-            <button className="filter-btn" onClick={loadData}>
+            <button className="filter-btn" onClick={handleManualRefresh}>
               {loading ? '로딩 중...' : '새로고침 🔄'}
             </button>
           </div>
@@ -2304,7 +2372,7 @@ function App() {
           <button className="filter-btn" onClick={() => setIsConfigModalOpen(true)}>
             설정 ⚙️
           </button>
-          <button className="filter-btn active" onClick={loadData}>
+          <button className="filter-btn active" onClick={handleManualRefresh}>
             {loading ? '로딩 중...' : '새로고침 🔄'}
           </button>
         </div>
@@ -2321,7 +2389,7 @@ function App() {
         <div className="glass-card empty-placeholder" style={{ borderColor: 'var(--accent-rose)' }}>
           <h2 style={{ color: 'var(--accent-rose)' }}>클라우드 연결 오류</h2>
           <p>{error}</p>
-          <button className="sim-btn" style={{ background: 'var(--accent-rose)' }} onClick={loadData}>연결 재시도 🔄</button>
+          <button className="sim-btn" style={{ background: 'var(--accent-rose)' }} onClick={handleManualRefresh}>연결 재시도 🔄</button>
         </div>
       ) : (
         <>
