@@ -158,12 +158,17 @@ const measureRowKey = (r) => `${r.Date_Time}|${r.Device_ID}|${r.Channel}`;
 // 새로고침 직후에도 증분 조회만 하도록 만든다.
 //
 // 나아가 마지막 조회로부터 MIN_FETCH_INTERVAL_MS가 지나지 않았으면 네트워크
-// 요청 자체를 생략한다. 3초마다 새로고침되더라도 실제 조회는 분당 1회로 묶인다.
+// 요청 자체를 생략한다. 3초마다 새로고침되더라도 실제 조회는 5분당 1회로 묶인다.
 // =========================================================================
 const CACHE_KEY_PREFIX = 'toc_measure_cache_v1:';
 const SITE_CONFIG_CACHE_PREFIX = 'toc_site_config_v1:';
-const SITE_CONFIG_TTL_MS = 5 * 60 * 1000;     // 설정 정보 캐시 유효 시간
-const MIN_FETCH_INTERVAL_MS = 60 * 1000;      // 새로고침 폭주 시 조회 최소 간격
+// 조회 주기 (2026-09-30)
+// Supabase Log Ingestion 은 요청 '횟수'에 비례한다. 화면을 상시 켜 두는 고객이 늘면
+// 대시보드 조회가 업로더보다 많은 로그를 쓴다. 측정값은 업로더가 15분마다 올리므로
+// 그보다 자주 조회해도 대부분 빈 응답이다. 설정은 거의 바뀌지 않는다.
+const DATA_POLL_MS = 15 * 60 * 1000;          // 측정 데이터 정기 조회 (업로더 주기와 동일)
+const SITE_CONFIG_TTL_MS = 30 * 60 * 1000;    // 설정 정보 캐시 유효 시간 겸 정기 조회 주기
+const MIN_FETCH_INTERVAL_MS = 5 * 60 * 1000;  // 새로고침·탭 전환 폭주 시 조회 최소 간격
 const MAX_CACHE_BYTES = 3 * 1024 * 1024;      // localStorage 용량(약 5MB) 대비 여유분
 const MAX_INITIAL_ROWS = 20000;               // 전체 재조회 1회당 상한
 
@@ -368,7 +373,7 @@ function App() {
   const loadSiteConfig = useCallback(async () => {
     if (!hasSiteParam) return;
 
-    // 설정 정보도 새로고침마다 조회하면 낭비다. 5분간은 캐시로 대신한다.
+    // 설정 정보도 새로고침마다 조회하면 낭비다. SITE_CONFIG_TTL_MS 동안은 캐시로 대신한다.
     const configCacheKey = `${SITE_CONFIG_CACHE_PREFIX}${deviceIdParam || siteId || siteSearchTerm}`;
     if (!siteConfigHydratedRef.current) {
       siteConfigHydratedRef.current = true;
@@ -561,7 +566,7 @@ function App() {
         setLoadProgress(`캐시 복원 ${cached.rows.length.toLocaleString()}건`);
 
         // 방금 받아온 데이터라면 네트워크 요청 자체를 생략한다.
-        // (수 초 간격 새로고침이 걸린 상황판에서 조회를 분당 1회로 묶는다)
+        // (수 초 간격 새로고침이 걸린 상황판에서 조회를 5분당 1회로 묶는다)
         if (Date.now() - cached.savedAt < MIN_FETCH_INTERVAL_MS) {
           return;
         }
@@ -1184,13 +1189,23 @@ function App() {
     }
   }, [siteConfig]);
 
-  // 사이트 설정 정보 주기적 로드 (탭이 보이는 동안에만 폴링)
+  // 사이트 설정 정보 로드 — 처음 한 번, 이후 탭이 보이는 동안 SITE_CONFIG_TTL_MS 마다.
+  // 설정 저장 직후에는 저장 함수가 직접 다시 부르므로 여기서 자주 볼 필요가 없다.
   useEffect(() => {
     loadSiteConfig();
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') loadSiteConfig();
-    }, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    let lastAt = Date.now();
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastAt < SITE_CONFIG_TTL_MS) return;
+      lastAt = Date.now();
+      loadSiteConfig();
+    };
+    const interval = setInterval(refreshIfStale, SITE_CONFIG_TTL_MS);
+    document.addEventListener('visibilitychange', refreshIfStale);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshIfStale);
+    };
   }, [loadSiteConfig]);
 
   // 조회 필터 변경 또는 시간 경과 시 데이터 로드
@@ -1200,7 +1215,7 @@ function App() {
 
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') loadData();
-    }, 5 * 60 * 1000);
+    }, DATA_POLL_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') loadData();
