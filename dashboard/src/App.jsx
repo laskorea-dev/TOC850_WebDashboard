@@ -784,17 +784,28 @@ function App() {
     return successCount > 0;
   }, [telegramBotToken, siteConfig]);
 
+  // 쓰기는 서버 API 로만 보낸다. 브라우저의 키는 조회 전용이다.
+  const writeDashboard = useCallback(async (action, fields) => {
+    const response = await fetch('/api/dashboard-write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action,
+        device_id: siteConfig.device_id || deviceIdParam,
+        passcode,
+        ...fields
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || `서버 오류 (${response.status})`);
+    }
+    return result;
+  }, [passcode, siteConfig.device_id, deviceIdParam]);
+
   // 임계값 저장 API 호출 (Supabase PATCH)
   const saveSiteConfig = useCallback(async (updatedAlerts) => {
     try {
-      if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
-      }
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/device_config`
-        : `${baseUrl}/rest/v1/device_config`;
-
       // receivers가 있다면 flat fields 동기화
       const receivers = updatedAlerts.receivers || [];
       const telegramIds = receivers.filter(r => r.type === 'telegram').map(r => r.value).join(',');
@@ -806,39 +817,25 @@ function App() {
         telegram_bot_token: telegramBotToken
       };
 
-      const payload = {
+      await writeDashboard('save_config', {
         toc_alert_high: finalAlerts,
         telegram_chat_ids: telegramIds || updatedAlerts.telegram_chat_ids || '',
         alert_emails: emails || updatedAlerts.alert_emails || '',
         site_name: siteNameInput || siteConfig.site_name,
-        passcode: passcodeChangeInput || siteConfig.passcode
-      };
-
-      const response = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(payload)
+        new_passcode: passcodeChangeInput || undefined
       });
 
-      if (response.ok) {
-        alert("설정이 성공적으로 저장되었습니다!");
-        loadSiteConfig(); // 설정 재로드
-        return true;
-      } else {
-        const errData = await response.json();
-        throw new Error(errData.message || '설정 저장 중 오류가 발생했습니다.');
-      }
+      // 이후 쓰기 요청은 바뀐 패스코드로 인증한다.
+      if (passcodeChangeInput) setPasscode(passcodeChangeInput);
+      alert("설정이 성공적으로 저장되었습니다!");
+      loadSiteConfig(); // 설정 재로드
+      return true;
     } catch (err) {
       console.error("설정 저장 실패:", err);
       alert(`설정 저장 실패: ${err.message}`);
       return false;
     }
-  }, [siteConfig, loadSiteConfig, siteNameInput, deviceIdParam, telegramBotToken, passcodeChangeInput]);
+  }, [siteConfig, loadSiteConfig, siteNameInput, telegramBotToken, passcodeChangeInput, writeDashboard]);
 
   // 알림 수신인 직접 등록 API (POST)
   const registerReceiver = useCallback(async () => {
@@ -871,100 +868,27 @@ function App() {
 
     setRegIsSending(true);
     try {
-      if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
-      }
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/device_config`
-        : `${baseUrl}/rest/v1/device_config`;
-
-      // 1. 최신 설정 다시 로드하여 동시성 제어
-      const res = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      if (!res.ok) throw new Error('현재 기기 설정을 가져올 수 없습니다.');
-      const dataList = await res.json();
-      if (!dataList || dataList.length === 0) throw new Error('등록된 기기 설정이 없습니다.');
-      
-      const currentConfig = dataList[0];
-      let alertObj = {};
-      if (currentConfig.toc_alert_high) {
-        alertObj = typeof currentConfig.toc_alert_high === 'string'
-          ? JSON.parse(currentConfig.toc_alert_high)
-          : currentConfig.toc_alert_high;
-      }
-      
-      // receivers 추출 및 신규 추가
-      const receivers = alertObj.receivers || [];
-      
-      // 중복 체크
-      if (receivers.some(r => r.value === regValue.trim())) {
-        alert("이미 등록된 알림 수신처입니다.");
-        setRegIsSending(false);
-        return;
-      }
-
-      const newReceiver = {
-        name: regName.trim(),
-        value: regValue.trim(),
-        type: regType,
-        created_at: new Date().toISOString()
-      };
-      
-      const updatedReceivers = [...receivers, newReceiver];
-      
-      // Comma-separated strings for flat columns
-      const updatedTelegramIds = updatedReceivers.filter(r => r.type === 'telegram').map(r => r.value).join(',');
-      const updatedEmails = updatedReceivers.filter(r => r.type === 'email').map(r => r.value).join(',');
-      
-      const updatedAlerts = {
-        ...alertObj,
-        receivers: updatedReceivers,
-        telegram_chat_ids: updatedTelegramIds,
-        alert_emails: updatedEmails,
+      await writeDashboard('add_receiver', {
+        receiver: { name: regName.trim(), value: regValue.trim(), type: regType },
         telegram_bot_token: telegramBotToken // 봇 토큰 유지
-      };
-
-      const patchRes = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify({
-          toc_alert_high: updatedAlerts,
-          telegram_chat_ids: updatedTelegramIds,
-          alert_emails: updatedEmails
-        })
       });
 
-      if (patchRes.ok) {
-        alert("알림 수신인 등록 성공! 이제 해당 텔레그램/이메일로 경보 알림이 전송됩니다.");
-        if (regType === 'telegram') {
-          const welcomeMsg = `<b>🔔 TOC 실시간 경보 알림 수신 등록 완료</b>\n\n안녕하세요, <b>${regName.trim()}</b>님.\n${siteConfig.site_name || 'TOC 대시보드'}의 실시간 장애/경보 알림 수신처로 정상 등록되었습니다.\n\n등록 시각: ${new Date().toLocaleString()}`;
-          sendTelegramAlert(regValue.trim(), welcomeMsg);
-        }
-        setRegName('');
-        setRegValue('');
-        setIsRegisterModalOpen(false);
-        loadSiteConfig(); // 설정 재로드
-      } else {
-        const errData = await patchRes.json();
-        throw new Error(errData.message || '저장 중 오류가 발생했습니다.');
+      alert("알림 수신인 등록 성공! 이제 해당 텔레그램/이메일로 경보 알림이 전송됩니다.");
+      if (regType === 'telegram') {
+        const welcomeMsg = `<b>🔔 TOC 실시간 경보 알림 수신 등록 완료</b>\n\n안녕하세요, <b>${regName.trim()}</b>님.\n${siteConfig.site_name || 'TOC 대시보드'}의 실시간 장애/경보 알림 수신처로 정상 등록되었습니다.\n\n등록 시각: ${new Date().toLocaleString()}`;
+        sendTelegramAlert(regValue.trim(), welcomeMsg);
       }
+      setRegName('');
+      setRegValue('');
+      setIsRegisterModalOpen(false);
+      loadSiteConfig(); // 설정 재로드
     } catch (err) {
       console.error("수신인 등록 실패:", err);
       alert(`수신인 등록 실패: ${err.message}`);
     } finally {
       setRegIsSending(false);
     }
-  }, [regName, regType, regValue, siteConfig, loadSiteConfig, deviceIdParam, telegramBotToken, sendTelegramAlert]);
+  }, [regName, regType, regValue, siteConfig, loadSiteConfig, telegramBotToken, sendTelegramAlert, writeDashboard]);
 
   // 알림 수신인 삭제 API (DELETE)
   const deleteReceiver = useCallback(async (receiverValue) => {
@@ -972,80 +896,22 @@ function App() {
       return;
     }
     try {
-      if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
-      }
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const configEndpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/device_config`
-        : `${baseUrl}/rest/v1/device_config`;
-
-      // 1. 최신 설정 다시 로드
-      const res = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      if (!res.ok) throw new Error('현재 기기 설정을 가져올 수 없습니다.');
-      const dataList = await res.json();
-      if (!dataList || dataList.length === 0) throw new Error('등록된 기기 설정이 없습니다.');
-      
-      const currentConfig = dataList[0];
-      let alertObj = {};
-      if (currentConfig.toc_alert_high) {
-        alertObj = typeof currentConfig.toc_alert_high === 'string'
-          ? JSON.parse(currentConfig.toc_alert_high)
-          : currentConfig.toc_alert_high;
-      }
-      
-      const receivers = alertObj.receivers || [];
-      const targetReceiver = receivers.find(r => r.value === receiverValue);
-      const updatedReceivers = receivers.filter(r => r.value !== receiverValue);
-      
-      // Comma-separated strings
-      const updatedTelegramIds = updatedReceivers.filter(r => r.type === 'telegram').map(r => r.value).join(',');
-      const updatedEmails = updatedReceivers.filter(r => r.type === 'email').map(r => r.value).join(',');
-      
-      const updatedAlerts = {
-        ...alertObj,
-        receivers: updatedReceivers,
-        telegram_chat_ids: updatedTelegramIds,
-        alert_emails: updatedEmails,
+      const { removed } = await writeDashboard('delete_receiver', {
+        value: receiverValue,
         telegram_bot_token: telegramBotToken // 봇 토큰 유지
-      };
-
-      const patchRes = await fetch(`${configEndpoint}?device_id=eq.${encodeURIComponent(siteConfig.device_id || deviceIdParam)}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify({
-          toc_alert_high: updatedAlerts,
-          telegram_chat_ids: updatedTelegramIds,
-          alert_emails: updatedEmails
-        })
       });
 
-      if (patchRes.ok) {
-        alert("알림 수신인이 삭제되었습니다.");
-        if (targetReceiver && targetReceiver.type === 'telegram') {
-          const leaveMsg = `<b>🔕 TOC 실시간 경보 알림 수신 해제 완료</b>\n\n안녕하세요, <b>${targetReceiver.name}</b>님.\n${siteConfig.site_name || 'TOC 대시보드'}의 실시간 알림 수신처에서 정상적으로 해제(삭제)되었습니다.\n\n처리 시각: ${new Date().toLocaleString()}`;
-          sendTelegramAlert(receiverValue, leaveMsg);
-        }
-        loadSiteConfig(); // 설정 재로드
-      } else {
-        const errData = await patchRes.json();
-        throw new Error(errData.message || '삭제 중 오류가 발생했습니다.');
+      alert("알림 수신인이 삭제되었습니다.");
+      if (removed && removed.type === 'telegram') {
+        const leaveMsg = `<b>🔕 TOC 실시간 경보 알림 수신 해제 완료</b>\n\n안녕하세요, <b>${removed.name}</b>님.\n${siteConfig.site_name || 'TOC 대시보드'}의 실시간 알림 수신처에서 정상적으로 해제(삭제)되었습니다.\n\n처리 시각: ${new Date().toLocaleString()}`;
+        sendTelegramAlert(receiverValue, leaveMsg);
       }
+      loadSiteConfig(); // 설정 재로드
     } catch (err) {
       console.error("수신인 삭제 실패:", err);
       alert(`수신인 삭제 실패: ${err.message}`);
     }
-  }, [siteConfig, loadSiteConfig, deviceIdParam, telegramBotToken, sendTelegramAlert]);
+  }, [siteConfig, loadSiteConfig, telegramBotToken, sendTelegramAlert, writeDashboard]);
 
   // 모의 데이터 생성 API (POST)
   const insertMockData = useCallback(async () => {
@@ -1061,69 +927,28 @@ function App() {
 
     setSimIsSending(true);
     try {
-      if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
-      }
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const targetTable = SUPABASE_MEASUREMENT_TABLE;
-      const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${targetTable}`
-        : `${baseUrl}/rest/v1/${targetTable}`;
-
-      // 채널명 매핑
-      let channelName = `채널 ${simChannel}`;
-      if (simChannel === '1') channelName = "유입수";
-      else if (simChannel === '2') channelName = "1차처리수";
-      else if (simChannel === '3') channelName = "방류수";
-      else if (simChannel === '5') channelName = "test";
-
       // 현재 시각 포맷: YYYY-MM-DD HH:mm:ss
       const now = new Date();
       const pad = (n) => String(n).padStart(2, '0');
       const formattedDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 
-      const resolvedSiteId = siteConfig.site_id || siteSearchTerm;
-      const resolvedDeviceId = deviceIdParam || "MOCK-DEVICE";
-
-      const payload = {
-        Date_Time: formattedDate,
-        Channel: parseInt(simChannel),
-        Channel_Name: channelName,
-        TOC_Conc: tocVal,
-        DilutionFactor: 1.0,
-        MSIG: 0.0,
-        Add_note: "[MOCK TEST DATA]"
-      };
-
-      payload.Site_ID = resolvedSiteId;
-      payload.Device_ID = resolvedDeviceId;
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(payload)
+      await writeDashboard('insert_mock', {
+        channel: parseInt(simChannel),
+        toc: tocVal,
+        date_time: formattedDate,
+        use_device: Boolean(deviceIdParam)
       });
 
-      if (response.ok) {
-        alert("모의 테스트 데이터가 성공적으로 적재되었습니다!");
-        setSimToc(''); // 입력 폼 리셋
-        loadData();    // 데이터 테이블 새로고침
-      } else {
-        const errData = await response.json();
-        throw new Error(errData.message || '데이터 적재 중 에러가 발생했습니다.');
-      }
+      alert("모의 테스트 데이터가 성공적으로 적재되었습니다!");
+      setSimToc(''); // 입력 폼 리셋
+      loadData();    // 데이터 테이블 새로고침
     } catch (err) {
       console.error("모의 데이터 적재 실패:", err);
       alert(`모의 데이터 적재 실패: ${err.message}`);
     } finally {
       setSimIsSending(false);
     }
-  }, [simChannel, simToc, siteSearchTerm, deviceIdParam, loadData, siteConfig]);
+  }, [simChannel, simToc, deviceIdParam, loadData, writeDashboard]);
 
   // 모의 데이터 일괄 삭제 API (DELETE)
   const deleteMockData = useCallback(async () => {
@@ -1132,53 +957,29 @@ function App() {
     }
     setSimIsSending(true);
     try {
-      if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Supabase 연결 정보가 설정되지 않았습니다.');
-      }
-      const baseUrl = SUPABASE_URL.replace(/\/$/, '');
-      const targetTable = SUPABASE_MEASUREMENT_TABLE;
-      const deleteFilter = deviceIdParam 
-        ? `&Device_ID=eq.${encodeURIComponent(deviceIdParam)}` 
-        : `&Site_ID=eq.${encodeURIComponent(siteConfig.site_id || siteSearchTerm)}`;
-      
-      const endpoint = baseUrl.includes('/rest/v1')
-        ? `${baseUrl}/${targetTable}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D${deleteFilter}`
-        : `${baseUrl}/rest/v1/${targetTable}?Add_note=eq.%5BMOCK%20TEST%20DATA%5D${deleteFilter}`;
+      await writeDashboard('delete_mock', { use_device: Boolean(deviceIdParam) });
 
-      const response = await fetch(endpoint, {
-        method: 'DELETE',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
-
-      if (response.ok) {
-        alert("모든 모의 테스트 데이터가 일괄 삭제되었습니다!");
-        // 삭제는 증분 조회로 감지할 수 없으므로 캐시를 비우고 전체 재조회한다.
-        queryKeyRef.current = '';
-        latestTsRef.current = '';
-        dataRef.current = [];
-        lastFetchAtRef.current = 0;
-        try {
-          Object.keys(localStorage)
-            .filter(k => k.startsWith(CACHE_KEY_PREFIX))
-            .forEach(k => localStorage.removeItem(k));
-        } catch {
-          // 저장소 접근 불가 — 무시
-        }
-        loadData(); // 데이터 테이블 새로고침
-      } else {
-        const err = await response.json();
-        throw new Error(err.message || '데이터 삭제 중 에러가 발생했습니다.');
+      alert("모든 모의 테스트 데이터가 일괄 삭제되었습니다!");
+      // 삭제는 증분 조회로 감지할 수 없으므로 캐시를 비우고 전체 재조회한다.
+      queryKeyRef.current = '';
+      latestTsRef.current = '';
+      dataRef.current = [];
+      lastFetchAtRef.current = 0;
+      try {
+        Object.keys(localStorage)
+          .filter(k => k.startsWith(CACHE_KEY_PREFIX))
+          .forEach(k => localStorage.removeItem(k));
+      } catch {
+        // 저장소 접근 불가 — 무시
       }
+      loadData(); // 데이터 테이블 새로고침
     } catch (err) {
       console.error("모의 데이터 삭제 실패:", err);
       alert(`모의 데이터 삭제 실패: ${err.message}`);
     } finally {
       setSimIsSending(false);
     }
-  }, [siteSearchTerm, deviceIdParam, loadData, siteConfig]);
+  }, [deviceIdParam, loadData, writeDashboard]);
 
   // 모달이 열리거나 관리자 설정 페이지에 진입할 때 localAlerts 및 alertEmails 상태 동기화
   useEffect(() => {
