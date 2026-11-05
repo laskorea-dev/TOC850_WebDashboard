@@ -22,6 +22,7 @@ beforeEach(() => {
   process.env.SUPABASE_URL = 'https://example.supabase.co/rest/v1/';
   process.env.SUPABASE_SERVICE_ROLE_KEY = SERVICE_KEY;
   delete process.env.SUPABASE_MEASUREMENT_TABLE;
+  delete process.env.SUPABASE_KEY;
   requests = [];
   rows = [device];
   globalThis.fetch = async (url, init = {}) => {
@@ -85,6 +86,13 @@ test('서버 환경변수가 없으면 500 이고 설정 이름을 노출하지 
   const out = await call({ ...auth, action: 'delete_mock' });
   assert.equal(out.status, 500);
   assert.doesNotMatch(out.json.error, /SUPABASE/);
+});
+
+test('서버 키는 기존 API 와 같이 SUPABASE_KEY 로도 읽는다', async () => {
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.SUPABASE_KEY = 'fallback-key';
+  assert.equal((await call({ ...auth, action: 'delete_mock' })).status, 200);
+  assert.equal(writes()[0].headers.Authorization, 'Bearer fallback-key');
 });
 
 test('save_config 는 허용한 컬럼만 쓴다', async () => {

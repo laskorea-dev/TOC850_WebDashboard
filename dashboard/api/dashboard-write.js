@@ -36,9 +36,10 @@ function parseBody(req) {
 
 function createDb() {
   const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // 같은 프로젝트의 send-alert·telegram-webhook 과 같은 변수를 읽는다.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
   if (!url || !key) {
-    console.error('dashboard-write: SUPABASE_URL 또는 SUPABASE_SERVICE_ROLE_KEY 가 없습니다.');
+    console.error('dashboard-write: 서버용 SUPABASE_URL 또는 키 환경변수가 없습니다.');
     throw new HttpError(500, '서버 설정 오류입니다. 관리자에게 문의해 주세요.');
   }
   const base = `${url.replace(/\/+$/, '').replace(/\/rest\/v1$/, '')}/rest/v1`;

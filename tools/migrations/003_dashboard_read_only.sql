@@ -1,6 +1,6 @@
 -- 003_dashboard_read_only.sql
 -- 목적: 대시보드가 anon 키로 조회할 수 있게 하고, anon 의 쓰기 권한을 없앤다.
--- 상태: 미적용 (적용하면 날짜를 여기와 인계 문서에 기록할 것)
+-- 상태: 2026-11-05 적용 (Supabase SQL Editor, 프로덕션)
 --
 -- 업로더·서버 API 는 service_role 이므로 RLS 와 아래 revoke 의 영향을 받지 않는다.
 -- 대시보드가 아직 service_role 로 접속 중이어도 이 SQL 은 동작을 바꾸지 않는다.
