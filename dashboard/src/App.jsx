@@ -12,6 +12,7 @@ import {
   Line,
   Brush
 } from 'recharts';
+import { buildChannelColorMap } from './channelColors';
 
 // =========================================================================
 // Supabase 연결 설정 — Vercel 환경변수에서 로드 (소스코드에 키 노출 금지)
@@ -20,18 +21,6 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
 const SUPABASE_MEASUREMENT_TABLE = import.meta.env.VITE_SUPABASE_MEASUREMENT_TABLE || "measure_logs_v2";
 const PAGE_SIZE = 1000; // Supabase 기본 limit
-
-// 차트 선 색상 매핑
-const LINE_COLORS = {
-  '방류수': '#ff9f43',
-  '유입수': '#00f2fe',
-  '고농도': '#a55eea',
-  '방류수 (Effluent)': '#ff9f43',
-  '유입수 (Influent)': '#00f2fe',
-  '1차처리 (Primary)': '#a55eea',
-  '냉각수 (Cooling Water)': '#10b981',
-  '기타 채널': '#a0a5b5'
-};
 
 // 비고 란의 중복 채널명 정보 제거 (CH Name = xxx / 뒷내용 형태 삭제)
 const cleanAddNote = (note) => {
@@ -1223,6 +1212,12 @@ function App() {
     return Array.from(channels);
   }, [trendFilteredData]);
 
+  // 채널별 선 색 (고정색 없는 채널명끼리도 서로 다른 색)
+  const channelColorMap = useMemo(
+    () => buildChannelColorMap(trendChannels, channelNameToIdMap),
+    [trendChannels, channelNameToIdMap]
+  );
+
   // 현재 표시 중인 채널들 (숨긴 채널 제외)
   const visibleChannels = useMemo(() => {
     return trendChannels.filter(ch => !hiddenChannels.has(ch));
@@ -2270,7 +2265,7 @@ function App() {
             <div className="channel-chips">
               {trendChannels.map(chName => {
                 const isHidden = hiddenChannels.has(chName);
-                const color = LINE_COLORS[chName] || LINE_COLORS['기타 채널'];
+                const color = channelColorMap[chName];
                 return (
                   <button
                     key={chName}
@@ -2391,7 +2386,7 @@ function App() {
                           type="monotone"
                           dataKey={chName}
                           name={chName}
-                          stroke={LINE_COLORS[chName] || LINE_COLORS['기타 채널']}
+                          stroke={channelColorMap[chName]}
                           strokeWidth={hiddenChannels.has(chName) ? 0 : 2}
                           dot={!hiddenChannels.has(chName) && chartData.length <= 100 ? { r: 3, strokeWidth: 1 } : false}
                           activeDot={hiddenChannels.has(chName) ? false : { r: 5 }}
